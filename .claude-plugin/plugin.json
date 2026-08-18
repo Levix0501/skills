@@ -1,0 +1,9 @@
+{
+  "name": "levix-skills",
+  "description": "A doc-based build pipeline for Claude Code: kick-off interviews the idea into shape, create-spec writes it into a reviewed spec, implement builds it as a resumable, task-file run.",
+  "skills": [
+    "./skills/kick-off",
+    "./skills/create-spec",
+    "./skills/implement"
+  ]
+}

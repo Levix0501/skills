@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Resolve and create one spec's implementation directory beside it.
+# This helper creates neither phase briefs nor progress.md; the controller owns both.
+#
+# Usage: implement-directory SPEC_FILE
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+  echo "usage: implement-directory SPEC_FILE" >&2
+  exit 2
+fi
+
+spec=$1
+[ -f "$spec" ] || { echo "no such spec file: $spec" >&2; exit 2; }
+
+spec_dir=$(CDPATH= cd -- "$(dirname -- "$spec")" && pwd -P)
+spec_name=$(basename -- "$spec")
+
+slug=$(basename "$spec_name" .md)
+[ -n "$slug" ] && [ "$slug" != "." ] && [ "$slug" != ".." ] \
+  || { echo "cannot derive an implement-directory name from: $spec" >&2; exit 2; }
+
+base="$spec_dir/.implement"
+dir="$base/$slug"
+mkdir -p "$dir"
+[ -e "$base/.gitignore" ] || printf '*\n' > "$base/.gitignore"
+cd "$dir" && pwd

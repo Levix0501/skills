@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Generate one review package across one or more repository ranges.
+#
+# The package is navigation material, not a record: it goes to an ordinary
+# temp file, never into the run's state directory, and nothing preserves
+# it. Regenerate it whenever it is missing.
+#
+# Usage: review-package DOC_FILE REPO BASE HEAD [REPO BASE HEAD ...]
+# Prints the path it wrote.
+set -euo pipefail
+
+if [ $# -lt 4 ] || [ $((($# - 1) % 3)) -ne 0 ]; then
+  echo "usage: review-package DOC_FILE REPO BASE HEAD [REPO BASE HEAD ...]" >&2
+  exit 2
+fi
+
+doc=$1
+shift
+[ -f "$doc" ] || { echo "no such doc file: $doc" >&2; exit 2; }
+
+args=("$@")
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+  repo=${args[$i]}
+  base=${args[$((i + 1))]}
+  head=${args[$((i + 2))]}
+  [ -d "$repo" ] || { echo "no such repository: $repo" >&2; exit 2; }
+  repo_path=$(CDPATH= cd -- "$repo" && pwd -P)
+  git_root=$(git -C "$repo_path" rev-parse --show-toplevel 2>/dev/null) \
+    || { echo "not a git repository: $repo" >&2; exit 2; }
+  git_root=$(CDPATH= cd -- "$git_root" && pwd -P)
+  [ "$repo_path" = "$git_root" ] || { echo "repository path is not its git root: $repo" >&2; exit 2; }
+  git -C "$repo_path" rev-parse --verify --quiet "$base" >/dev/null || { echo "bad BASE for $repo: $base" >&2; exit 2; }
+  git -C "$repo_path" rev-parse --verify --quiet "$head" >/dev/null || { echo "bad HEAD for $repo: $head" >&2; exit 2; }
+  i=$((i + 3))
+done
+
+slug=$(basename "$doc" .md)
+slug=$(printf '%s' "$slug" | tr -cs '[:alnum:]._-' '-')
+out=$(mktemp "${TMPDIR:-/tmp}/review-${slug}.XXXXXX")
+repo_count=0
+commit_count=0
+
+{
+  echo "# Review package: $doc"
+  i=0
+  while [ "$i" -lt "${#args[@]}" ]; do
+    repo=${args[$i]}
+    base=${args[$((i + 1))]}
+    head=${args[$((i + 2))]}
+    echo
+    echo "## Repository: $repo"
+    echo
+    echo "Range: ${base}..${head}"
+    echo
+    echo "### Commits"
+    git -C "$repo" log --oneline "${base}..${head}"
+    echo
+    echo "### Files changed"
+    git -C "$repo" diff --stat "${base}..${head}"
+    echo
+    echo "### Diff"
+    git -C "$repo" diff -U10 "${base}..${head}"
+    repo_count=$((repo_count + 1))
+    commit_count=$((commit_count + $(git -C "$repo" rev-list --count "${base}..${head}")))
+    i=$((i + 3))
+  done
+} > "$out"
+
+echo "wrote ${out}: ${repo_count} repository(ies), ${commit_count} commit(s), $(wc -c < "$out" | tr -d ' ') bytes"

@@ -39,8 +39,12 @@ t02_ledger_is_the_live_record() {
   contains "$SKILL" 'fix round <R> repositories — <repo> [<branch>@<base7>]' || return 1
   contains "$SKILL" 'Ruling: <decision> — <reason>' || return 1
   contains "$SKILL" 'The ledger is append-only and controller-owned.' || return 1
+  contains "$SKILL" 'A defective entry is corrected by appending a ruling that names it, never by rewriting or deleting the line.' || return 1
+  contains "$SKILL" 'Phase <n>: acceptance pending — <acceptance ids> — <external dependency>' || return 1
+  contains "$SKILL" 'Phase <n>: acceptance verified — <acceptance ids> — <evidence>' || return 1
   contains "$SKILL" 'All ledger entries named in this skill are appended to `PROGRESS_FILE`.' || return 1
-  contains "$SKILL" 'Record only decisions, evidence and checkpoints needed to resume or report the build.' || return 1
+  contains "$SKILL" 'The ledger holds only the entry forms this skill names.' || return 1
+  ! grep -qF 'Record only decisions' "$SKILL" || return 1
   contains "$SKILL" 'Phase <n>: scope — whole remaining spec' || return 1
   contains "$SKILL" 'Phase <n>: scope — brief: <PHASE_BRIEF>' || return 1
   contains "$SKILL" 'Phase <n>: review — blocking' || return 1
@@ -112,6 +116,7 @@ t03_rolling_phase_planning() {
   contains "$SKILL" 'Merge candidates when they share implementation context or tests' || return 1
   contains "$SKILL" 'Inspect every involved Git repository.' || return 1
   contains "$SKILL" 'require a clean tree and ask whether to create a branch when on main/master' || return 1
+  contains "$SKILL" 'create it with an empty root commit; that commit is the repository'"'"'s phase base' || return 1
   contains "$SKILL" "Create or reuse the spec's implement directory" || return 1
   contains "$SKILL" 'If implementation discovers another required repository, add it to the phase' || return 1
   contains "$SKILL" 'If the return is malformed or conflicts with repository state' || return 1
@@ -122,13 +127,13 @@ t03_rolling_phase_planning() {
   contains "$SKILL" 'Capture every phase base before implementation starts' || return 1
   contains "$SKILL" 'one fresh implementer for the whole phase' || return 1
   contains "$SKILL" 'pass no phase brief; direct it to implement every spec requirement not already accepted' || return 1
-  contains "$SKILL" 'pass the frozen `PHASE_BRIEF` together with the spec' || return 1
+  contains "$SKILL" 'pass the frozen `PHASE_BRIEF` path together with the spec; the subagent reads the brief itself' || return 1
   contains "$SKILL" 'writes no implementation report' || return 1
   contains "$SKILL" 'DONE_WITH_CONCERNS must meet the same completion standard as DONE' || return 1
   contains "$SKILL" 'ACCEPTANCE: <phase acceptance checks and results>' || return 1
   contains "$SKILL" 'mechanically verify before dispatching the reviewer' || return 1
   contains "$SKILL" 'every returned commit equals its repository HEAD' || return 1
-  contains "$SKILL" 'every reported repository test, integration check and phase acceptance check passes when rerun' || return 1
+  ! grep -qF 'passes when rerun at the final heads' "$SKILL" || return 1
   contains "$SKILL" 'review ranges are exactly each repository' || return 1
   contains "$SKILL" 'verified: <test, integration and acceptance summary>' || return 1
   contains "$SKILL" "Use the spec's own requirement and acceptance identifiers when available." || return 1
@@ -136,15 +141,16 @@ t03_rolling_phase_planning() {
   contains "$SKILL" 'PHASE_BRIEF="$IMPLEMENT_DIR/P<n>.md"' || return 1
   contains "$SKILL" 'identify every Git repository whose tracked state must change for the landing.' || return 1
   contains "$SKILL" '# P<n> — <observable outcome>' || return 1
-  contains "$SKILL" 'Requirements: <the spec requirements included in this phase, preserving their identifiers when present>' || return 1
-  contains "$SKILL" 'Landing: <the independently deployable end state and exact stop boundary>' || return 1
-  contains "$SKILL" 'Verify: <the spec acceptance criteria, preserving their identifiers when present, and only phase-specific checks>' || return 1
+  contains "$SKILL" '<the spec requirements included in this phase, preserving their identifiers when present>' || return 1
+  contains "$SKILL" '<the independently deployable end state and exact stop boundary>' || return 1
+  contains "$SKILL" '<the spec acceptance criteria, preserving their identifiers when present, and only phase-specific checks>' || return 1
   contains "$SKILL" 'Freeze it at dispatch so implementation, recovery and review use the same contract.' || return 1
   contains "$SKILL" 'spec coverage, not on a predicted phase count' || return 1
   contains "$SKILL" 'every spec requirement is covered by accepted scope and review evidence' || return 1
   contains "$SKILL" 'every phase has accepted review evidence for its stable landing' || return 1
   contains "$SKILL" 'accepted review history covers the current HEAD of every participating repository' || return 1
   contains "$SKILL" 'Review every unreviewed range and resolve its findings through the same review, fix and re-review gate.' || return 1
+  contains "$SKILL" 'user-performed checks report through the user' || return 1
   contains "$SKILL" 'implemented outcomes, tests, acceptance evidence, deferred Minor findings, parked blocking findings and rulings' || return 1
   ! grep -qF '## Release gate' "$SKILL" || return 1
   ! grep -qF 'Stop before adding a second independent outcome' "$SKILL" || return 1
@@ -167,13 +173,21 @@ t03_rolling_phase_planning() {
     brief && fence && /^```$/ { exit }
     brief && fence { print }
   ' "$SKILL" > "$TMPROOT/brief-format"
-  [ "$(grep -cve '^$' "$TMPROOT/brief-format")" -eq 4 ] || return 1
-  ! grep -qE '^(---|id:|requirements:|## |Included:|Not included:|Invariants:|Acceptance:|Stable landing:)' "$TMPROOT/brief-format"
+  [ "$(grep -cve '^$' "$TMPROOT/brief-format")" -eq 7 ] || return 1
+  grep -qxF '## Requirements' "$TMPROOT/brief-format" || return 1
+  grep -qxF '## Landing' "$TMPROOT/brief-format" || return 1
+  grep -qxF '## Verify' "$TMPROOT/brief-format" || return 1
+  [ "$(grep -c '^## ' "$TMPROOT/brief-format")" -eq 3 ] || return 1
+  ! grep -qE '^(---|id:|requirements:|Included:|Not included:|Invariants:|Acceptance:|Stable landing:)' "$TMPROOT/brief-format"
 }
 
 t04_role_templates_point_at_the_files() {
   contains "$AGENTS/implementer.md" '# Phase Implementer Prompt Template' || return 1
   contains "$AGENTS/implementer.md" 'Subagent (general-purpose):' || return 1
+  contains "$AGENTS/implementer.md" 'run_in_background: false' || return 1
+  contains "$AGENTS/reviewer.md" 'run_in_background: false' || return 1
+  contains "$AGENTS/fixer.md" 'run_in_background: false' || return 1
+  contains "$AGENTS/re-reviewer.md" 'run_in_background: false' || return 1
   contains "$AGENTS/implementer.md" '**Purpose:**' || return 1
   contains "$AGENTS/implementer.md" '**Placeholders:**' || return 1
   contains "$AGENTS/implementer.md" '[SCOPE_BLOCK]' || return 1
@@ -216,6 +230,8 @@ t04_role_templates_point_at_the_files() {
   ! grep -qF 'run a focused check only' "$AGENTS/reviewer.md" || return 1
   contains "$AGENTS/reviewer.md" 'records blocking finding lines and deferred Minor one-liners in the ledger' || return 1
   contains "$AGENTS/reviewer.md" '[REPOSITORY_RANGES]' || return 1
+  contains "$AGENTS/reviewer.md" 'one past the highest finding id recorded in the ledger' || return 1
+  ! grep -qF 'for a full phase review' "$AGENTS/reviewer.md" || return 1
   ! grep -qF 'Do not dispatch subagents' "$AGENTS/implementer.md" "$AGENTS/reviewer.md" || return 1
   contains "$AGENTS/fixer.md" '[REPOSITORIES]' || return 1
   contains "$AGENTS/fixer.md" '[SCOPE_BLOCK]' || return 1
@@ -243,6 +259,7 @@ t05_review_fix_gate_contracts_remain() {
   contains "$SKILL" 'A blocking finding authorizes fix round 1 without a user decision.' || return 1
   contains "$SKILL" 'Dispatch a fresh fixer' || return 1
   contains "$SKILL" 'mechanically verify the fix before re-review' || return 1
+  ! grep -qF 'pass when rerun' "$SKILL" || return 1
   contains "$SKILL" 'Resume the same fixer' || return 1
   contains "$SKILL" 'Do not re-review an incomplete fix wave.' || return 1
   contains "$SKILL" 'dispatch exactly one fresh scoped re-reviewer' || return 1

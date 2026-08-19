@@ -7,6 +7,7 @@ One fresh reviewer owns the complete review of one mechanically verified phase l
 ```
 Subagent (general-purpose):
   description: "Review phase [PHASE_ID]"
+  run_in_background: false
   prompt: |
     Review one mechanically verified phase landing and return only concrete findings that can drive the fix gate.
 
@@ -57,10 +58,10 @@ Subagent (general-purpose):
 
 - `[PHASE_ID]` — the current phase.
 - `[SPEC_FILE]` — the approved spec.
-- `[SCOPE_BLOCK]` — the frozen phase brief, or the whole-remaining instruction together with the accepted phase records excluded from current scope.
+- `[SCOPE_BLOCK]` — `Phase brief: <PHASE_BRIEF>` naming the frozen brief file to read, or the whole-remaining instruction together with the accepted phase records excluded from current scope.
 - `[REPOSITORY_RANGES]` — one `<canonical repo path>: <base>..<head>` line per phase repository.
 - `[DIFF_FILE]` — the combined package path printed by `scripts/review-package`.
 - `[AGGREGATED_BLOCK]` — implementer concerns, repository tests, cross-repository checks and phase acceptance results.
-- `[FIRST_FINDING_ID]` — `F1` for a full phase review; one past the highest live id for a later scoped review.
+- `[FIRST_FINDING_ID]` — one past the highest finding id recorded in the ledger; `F1` when none exists.
 
 **Reviewer returns:** only the phase finding block. The controller keeps it as the review wave, records blocking finding lines and deferred Minor one-liners in the ledger, and records no finding block for a clean review.

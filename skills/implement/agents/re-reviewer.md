@@ -7,6 +7,7 @@ One fresh re-reviewer owns one complete fix-wave verdict.
 ```
 Subagent (general-purpose):
   description: "Re-review [PHASE_ID], fix round [FIX_ROUND]"
+  run_in_background: false
   prompt: |
     Re-review fix round [FIX_ROUND] for phase [PHASE_ID].
 

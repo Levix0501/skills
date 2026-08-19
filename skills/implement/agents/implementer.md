@@ -7,6 +7,7 @@ One fresh subagent owns one complete phase.
 ```
 Subagent (general-purpose):
   description: "Implement [PHASE_ID]"
+  run_in_background: false
   prompt: |
     Own phase [PHASE_ID] through a complete, tested and committed landing.
 
@@ -70,7 +71,7 @@ Subagent (general-purpose):
 
 - `[PHASE_ID]` — the current phase id.
 - `[SPEC_FILE]` — the approved spec.
-- `[SCOPE_BLOCK]` — the whole-remaining instruction or frozen phase brief.
+- `[SCOPE_BLOCK]` — the whole-remaining instruction, or `Phase brief: <PHASE_BRIEF>` naming the frozen brief file to read.
 - `[PROGRESS_FILE]` — the current build ledger.
 - `[REPOSITORIES]` — one `<canonical path> | branch <name> | base <sha>` line per phase repository.
 

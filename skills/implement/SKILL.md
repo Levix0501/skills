@@ -35,7 +35,7 @@ Stop at the first match:
 
 ## 2. Preconditions
 
-1. Inspect every involved Git repository. For each, require a clean tree and ask whether to create a branch when on main/master.
+1. Inspect every involved Git repository. For each, require a clean tree and ask whether to create a branch when on main/master. If the spec requires a repository that does not exist yet, create it with an empty root commit; that commit is the repository's phase base and every later commit belongs to the build.
 2. Create or reuse the spec's implement directory:
 
    ```sh
@@ -53,7 +53,7 @@ Otherwise create `PROGRESS_FILE` with:
 # Implement ledger — <SPEC_FILE>
 ```
 
-The ledger is append-only and controller-owned. All ledger entries named in this skill are appended to `PROGRESS_FILE`. Record only decisions, evidence and checkpoints needed to resume or report the build. Use the spec's own identifiers when present; do not invent them.
+The ledger is append-only and controller-owned. A defective entry is corrected by appending a ruling that names it, never by rewriting or deleting the line. All ledger entries named in this skill are appended to `PROGRESS_FILE`. The ledger holds only the entry forms this skill names. Use the spec's own identifiers when present; do not invent them.
 
 Record a ruling only when a non-obvious decision changes scope, risk or recovery:
 
@@ -79,6 +79,8 @@ Phase <n>: concern — <verbatim implementer concern>
 Phase <n>: review — blocking
 F<n> | critical|important | <finding>
 Phase <n>: review: minor deferred — F<n>: <one-liner>
+Phase <n>: acceptance pending — <acceptance ids> — <external dependency>
+Phase <n>: acceptance verified — <acceptance ids> — <evidence>
 Phase <n>: fix round <R> repositories — <repo-a> [<branch>@<base7>]; <repo-b> [<branch>@<base7>]
 Phase <n>: fix round <R> concern — <verbatim fixer concern>
 Phase <n>: fix round <R> — <repo-a> <a7>..<b7>; <repo-b> <a7>..<b7> — verified: <test, integration and acceptance summary>
@@ -129,11 +131,17 @@ For a stable increment, set `PHASE_BRIEF="$IMPLEMENT_DIR/P<n>.md"` and write onl
 ```md
 # P<n> — <observable outcome>
 
-Requirements: <the spec requirements included in this phase, preserving their identifiers when present>
+## Requirements
 
-Landing: <the independently deployable end state and exact stop boundary>
+<the spec requirements included in this phase, preserving their identifiers when present>
 
-Verify: <the spec acceptance criteria, preserving their identifiers when present, and only phase-specific checks>
+## Landing
+
+<the independently deployable end state and exact stop boundary>
+
+## Verify
+
+<the spec acceptance criteria, preserving their identifiers when present, and only phase-specific checks>
 ```
 
 Append `Phase <n>: scope — brief: <PHASE_BRIEF>`. The brief narrows only the current scope; the spec remains authoritative. Freeze it at dispatch so implementation, recovery and review use the same contract.
@@ -149,7 +157,7 @@ git -C <repo> rev-parse HEAD
 Capture every phase base before implementation starts, then dispatch one fresh implementer for the whole phase using [agents/implementer.md](agents/implementer.md):
 
 - whole-remaining scope → pass no phase brief; direct it to implement every spec requirement not already accepted;
-- stable-increment scope → pass the frozen `PHASE_BRIEF` together with the spec.
+- stable-increment scope → pass the frozen `PHASE_BRIEF` path together with the spec; the subagent reads the brief itself.
 
 The implementer owns the complete phase across all named repositories, including integration, tests and acceptance verification. It may make several coherent commits in each changed repository, but the final commit in every changed repository must carry `Phase: P<n>`.
 
@@ -191,7 +199,6 @@ For a DONE variant, mechanically verify before dispatching the reviewer:
 - every returned commit equals its repository HEAD, descends from that repository's phase base and carries `Phase: P<n>`;
 - every named repository tree is clean unless rescuing finished work verbatim;
 - the spec, `PROGRESS_FILE` and `PHASE_BRIEF` when present are unchanged;
-- every reported repository test, integration check and phase acceptance check passes when rerun at the final heads;
 - the review ranges are exactly each repository's recorded phase base through its verified HEAD.
 
 Append each returned concern, then one `Phase <n>: implemented — <repo> <base7>..<head7>; ... — verified: <test, integration and acceptance summary>` line covering every phase repository.
@@ -216,7 +223,6 @@ For a DONE variant, mechanically verify the fix before re-review:
 
 - every returned commit equals its repository HEAD and descends from its recorded fix base;
 - every named tree is clean;
-- the reported repository tests, integration checks and affected phase acceptance checks pass when rerun;
 - every fix range is exactly its recorded base through the verified HEAD.
 
 For BLOCKED, inspect the committed fix work. Resume the same fixer when the remaining work still belongs to the authorized finding wave; escalate external or irreversible blockers. Do not re-review an incomplete fix wave.
@@ -253,6 +259,8 @@ The build finishes on spec coverage, not on a predicted phase count. Confirm:
 - the accepted review history covers the current HEAD of every participating repository.
 
 If any range is unreviewed, do not finish. Review every unreviewed range and resolve its findings through the same review, fix and re-review gate.
+
+When outstanding acceptance evidence is blocked on an external dependency, append its `acceptance pending` lines, write the outstanding verification procedure to a file in the implement directory, report what the user must provide, and stop without finishing. When the dependency becomes available, collect the pending evidence — user-performed checks report through the user — append `Phase <n>: acceptance verified — <acceptance ids> — <evidence>`, then finish.
 
 Collect the first base and current head of every participating repository and append one `Build: complete — <repo ranges>` line. Then collect each repository's branch and range, implemented outcomes, tests, acceptance evidence, deferred Minor findings, parked blocking findings and rulings. Delete this spec's implement directory and report the collected result. The implement directory is transient; repository histories are the durable implementation record, and the spec's durability depends on whether it is Git-backed. Integration is the user's next decision.
 

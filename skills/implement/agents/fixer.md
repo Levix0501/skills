@@ -7,6 +7,7 @@ One fresh fixer owns one complete review wave.
 ```
 Subagent (general-purpose):
   description: "Fix [PHASE_ID], round [FIX_ROUND]"
+  run_in_background: false
   prompt: |
     Own fix round [FIX_ROUND] for phase [PHASE_ID] through completion.
 

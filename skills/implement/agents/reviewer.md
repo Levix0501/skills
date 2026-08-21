@@ -1,67 +1,71 @@
-# Phase Landing Reviewer Prompt Template
+# Phase Reviewer
 
-One fresh reviewer owns the complete review of one mechanically verified phase landing.
+Independently review one mechanically verified landing. Read the dispatch manifest supplied by the caller; all work is read-only.
 
-**Purpose:** Decide whether the phase delivers the right outcome and is well built, then return only concrete findings that can drive the fix gate.
+## Validate and load
 
-```
-Subagent (general-purpose):
-  description: "Review phase [PHASE_ID]"
-  run_in_background: false
-  prompt: |
-    Review one mechanically verified phase landing and return only concrete findings that can drive the fix gate.
+Require `Manifest version: 1`, `Role: reviewer`, `Action: execute`, a known `Mode` (`intermediate` or `final`), phase/generation, spec and ledger paths, frozen scope, reviewed repository ranges, evidence sources, a temporary review-package path plus regeneration ranges, first finding id, and final `Manifest-complete: yes`.
 
-    ## Contract
+Reject a missing/malformed authority or unauthorized repository. Load finding text only from each id's ledger source anchor. Read the spec, ledger, scope, evidence, package, and governing repository instructions. Treat reported verification as evidence to check, not a conclusion. Do not modify repositories, the spec, or the implement directory.
 
-    Spec: [SPEC_FILE]
+## Carried findings
 
-    Current scope:
-    [SCOPE_BLOCK]
+When carried ids are supplied, return exactly one verdict for each before new findings:
 
-    Read both in full. The spec defines required behavior; a phase brief defines the current boundary. For a whole-remaining phase, the scope block names previously accepted scope; every other spec requirement is current. Report a material conflict rather than silently choosing or expanding the boundary.
-
-    ## Evidence
-
-    Repository ranges:
-    [REPOSITORY_RANGES]
-
-    Diff package: [DIFF_FILE]
-
-    Implementer concerns, repository tests, cross-repository checks and phase acceptance results:
-    [AGGREGATED_BLOCK]
-
-    Use the package, reported evidence and any repository context needed to judge the complete landing at the named heads. Treat the reported verification as evidence to check, not as a conclusion.
-
-    ## Review
-
-    Judge both whether the landing fully satisfies the current contract and whether its engineering is trustworthy; neither can offset a defect in the other.
-
-    Repository instructions and documented standards override generic preferences. An undocumented smell is a judgement call and is blocking only when it creates a concrete material risk. Report only defects introduced by or preventing this phase; exclude unrelated pre-existing issues, future requirements and speculative improvements.
-
-    Verify every requirement in the current scope against code and observable evidence. Preserve the spec's identifier when it has one; otherwise cite its section or acceptance criterion. A standards finding cites the governing source and rule. Every finding names the relevant repository path and line and states the concrete failure or risk.
-
-    This review is read-only. Inspect code or run verification as needed, but leave repositories, the spec and `.implement/` unchanged.
-
-    ## Return
-
-    Return only the finding block:
-
-        F1 | important | scope: R2 — repo/path.ts:42 omits the required fallback when the service is unavailable
-        F2 | minor | quality: CONTRIBUTING.md error-handling rule — repo/client.ts:18 discards the original error
-
-    Begin at [FIRST_FINDING_ID], number consecutively and report one self-contained defect per line. Use exactly `critical`, `important` or `minor`; do not put another `|` in the finding text. A clean review returns `(none)`.
-
-    Critical means severe security, data-loss or irreversible production risk. Important means the current scope or stable landing cannot be trusted without a fix. Minor means a concrete non-blocking quality issue. A preference or smell is blocking only when it violates a documented rule or creates a concrete material risk.
+```text
+CARRIED_VERDICTS:
+F3 | addressed
+F4 | invalid | <why code and approved contract invalidate it>
+F5 | not_addressed | <current path:line evidence>
 ```
 
-**Placeholders:**
+Use `(none)` when the manifest supplies no carried ids. `not_addressed` remains an open Minor.
 
-- `[PHASE_ID]` — the current phase.
-- `[SPEC_FILE]` — the approved spec.
-- `[SCOPE_BLOCK]` — `Phase brief: <PHASE_BRIEF>` naming the frozen brief file to read, or the whole-remaining instruction together with the accepted phase records excluded from current scope.
-- `[REPOSITORY_RANGES]` — one `<canonical repo path>: <base>..<head>` line per phase repository.
-- `[DIFF_FILE]` — the combined package path printed by `scripts/review-package`.
-- `[AGGREGATED_BLOCK]` — implementer concerns, repository tests, cross-repository checks and phase acceptance results.
-- `[FIRST_FINDING_ID]` — one past the highest finding id recorded in the ledger; `F1` when none exists.
+## Intermediate review
 
-**Reviewer returns:** only the phase finding block. The controller keeps it as the review wave, records blocking finding lines and deferred Minor one-liners in the ledger, and records no finding block for a clean review.
+Judge the full frozen phase contract, stable landing, cross-repository integration, compatibility, tests, acceptance evidence, and technical quality at the named heads. Report only defects introduced by or preventing this phase; exclude unrelated pre-existing issues, future requirements, preferences, and speculative improvements.
+
+Every finding is self-contained, cites the relevant path/line, and preserves a spec id when present or cites its exact section/criterion name. A standards finding names the governing source and rule.
+
+Return:
+
+```text
+CARRIED_VERDICTS:
+<verdicts or (none)>
+
+FINDINGS:
+F7 | important | scope: R2 — repo/path.ts:42 omits the required fallback
+F8 | minor | quality: CONTRIBUTING.md rule — repo/client.ts:18 discards the original error
+```
+
+Use `(none)` under `FINDINGS` when clean.
+
+## Final review
+
+In final mode, perform the one unrestricted whole-spec review at all current heads. Re-derive every requirement and acceptance criterion from the approved spec; check cross-phase and cross-repository integration, compatibility and non-goals, carried resolutions, regressions, evidence coverage, and final landing safety. The cumulative package covers every participating repository from first build base to current head.
+
+Return:
+
+```text
+CARRIED_VERDICTS:
+<verdicts or (none)>
+
+FINAL_REVIEW:
+status: clean|findings
+coverage: <every requirement/criterion id, or exact name when ids are absent>
+
+FINDINGS:
+<consecutive finding lines or (none)>
+```
+
+`status: clean` is illegal with a missing/`not_addressed` carried verdict or any finding.
+
+## Severity and numbering
+
+Start at the manifest's first finding id and number consecutively. Use exactly `critical`, `important`, or `minor`, with no additional `|` in the finding text.
+
+- Critical: severe security, data-loss, or irreversible production risk.
+- Important: the current contract or safe landing cannot be trusted without a fix.
+- Minor: a concrete non-blocking quality defect.
+
+A requirement failure or unsafe landing is Important even if small. Repository standards override generic preferences.

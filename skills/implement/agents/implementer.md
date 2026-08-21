@@ -1,78 +1,73 @@
-# Phase Implementer Prompt Template
+# Phase Implementer
 
-One fresh subagent owns one complete phase.
+Own one manifest-defined phase through a complete, tested, committed landing. Read the dispatch manifest supplied by the caller; do not rely on conversation context for contract details.
 
-**Purpose:** Produce a complete, tested and committed landing for the current phase, then return a compact status block directly to the controller.
+## Validate the dispatch
 
-```
-Subagent (general-purpose):
-  description: "Implement [PHASE_ID]"
-  run_in_background: false
-  prompt: |
-    Own phase [PHASE_ID] through a complete, tested and committed landing.
+Require `Manifest version: 1`, `Role: implementer`, a known `Mode` (`intermediate` or `final`), a known `Action` (`execute` or `evidence-recovery`), phase/generation, spec and ledger paths, a frozen scope reference, repository records, an evidence output path, and final `Manifest-complete: yes`.
 
-    ## Contract
+Reject the dispatch as BLOCKED when a required field or referenced authority is missing, a repository is outside the manifest, the role/mode/action is wrong, or repository state conflicts with its named branch/base/head constraints. Complete finding text must come from the named ledger anchors, never from the manifest.
 
-    Spec: [SPEC_FILE]
+The spec, ledger, scope brief, manifests, prior evidence, review packages, and every other file inside the implement directory are read-only. You may write only the exact evidence output path.
 
-    Current scope:
-    [SCOPE_BLOCK]
+## Read the contract
 
-    Accepted work: [PROGRESS_FILE]
+Read the approved spec, ledger, and frozen scope in full. For a brief scope, deliver exactly its landing. For a final whole-remaining scope, implement every requirement not accepted in the ledger. For a final closure scope, close every named carried id. The spec defines behavior; the frozen scope defines the current boundary. Return BLOCKED on a material conflict instead of changing either authority.
 
-    Read the spec and current scope in full. For a whole-remaining phase, implement every spec requirement not recorded as accepted. For a stable increment, complete the outcome and verification defined by its brief and stop at that boundary. The spec defines required behavior; the brief defines the current phase boundary. If they materially conflict, return BLOCKED rather than expanding or redefining the scope.
+Resolve every incoming carried id by reading its complete line at the supplied ledger source. Do not revisit accepted behavior unless the current scope requires it.
 
-    Use the progress ledger with repository history to identify accepted phases. Do not revisit accepted behavior unless the current scope requires it. The spec, progress ledger and phase brief are read-only.
+Before source changes, verify each named repository is clean, on its named branch, and has the phase base as an ancestor of HEAD. Work only in named repositories. If another repository is required, return BLOCKED before changing it.
 
-    ## Repositories
+## Execute
 
-    [REPOSITORIES]
+For `Action: execute`:
 
-    Each line is `<canonical path> | branch <name> | base <sha>`. Before editing, verify that every named repository is clean, is on the named branch and has the phase base as an ancestor of HEAD. Work only in these repositories. If the landing requires another one, return BLOCKED before changing it so the controller can add it to the phase.
+- implement the scope end to end, including integration, tests, and acceptance verification;
+- preserve compatibility unless the spec changes it and leave no unsafe stub or half-migration;
+- follow repository instructions and documented standards;
+- commit coherent work; the final changed commit in each repository carries `Phase: P<n>` using the manifest phase;
+- leave every named tree clean; do not switch branches, push, or rewrite earlier history; and
+- return BLOCKED when the stable landing cannot be completed, committing only coherent tested work.
 
-    ## Deliver
+`Mode: intermediate` must leave an independently safe landing. `Mode: final` must integrate all remaining requirements and carried work so a whole-spec review can run at the returned heads.
 
-    Implement the current scope end to end, including integration, tests and acceptance verification. Leave a stable landing: preserve compatibility unless the spec changes it, leave no temporary stub or half-migration that needs a later phase to become safe, and make the promised outcome observable.
+For `Action: evidence-recovery`, do not modify source, commits, branches, or tracked state. At the immutable heads named by the manifest, rerun or recollect the required tests, integration checks, and acceptance evidence, then write a successor evidence file.
 
-    Follow the instructions and conventions governing the code you change. Commit coherent pieces as useful; the final commit in every changed repository must carry the phase trailer:
+## Evidence
 
-        git commit -m "..." -m "Phase: [PHASE_ID]"
+Write the authorized evidence path once in this structure:
 
-    Run the verification needed to support the landing. Leave every named repository clean. Do not switch branches, push or rewrite existing history.
+```text
+# Evidence
+Dispatch: <manifest path>
+Status: DONE|DONE_WITH_CONCERNS|BLOCKED
 
-    If the stable landing cannot be completed, commit only coherent tested work and return BLOCKED.
+REPOSITORY:
+Path: <canonical path>
+Branch: <name>
+Base: <sha>
+Head: <sha>
+Tests: <commands and results for this repository>
+END_REPOSITORY
 
-    ## Return
-
-    Return only one compact status block directly to the controller. Do not write an implementation report.
-
-        STATUS: DONE
-        REPO: <path> | COMMIT: <sha carrying the phase trailer> | TESTS: <commands and results>
-        INTEGRATION_TESTS: <commands and results, or n/a>
-        ACCEPTANCE: <phase acceptance checks and results>
-
-        STATUS: DONE_WITH_CONCERNS
-        REPO: <path> | COMMIT: <sha carrying the phase trailer> | TESTS: <commands and results>
-        INTEGRATION_TESTS: <commands and results, or n/a>
-        ACCEPTANCE: <phase acceptance checks and results>
-        CONCERN: <one self-contained line; repeat as needed>
-
-        STATUS: BLOCKED
-        REPO: <path> | COMMIT: <sha carrying the phase trailer> | TESTS: <commands and results>
-        BLOCKER: <what stopped the phase>
-        REMAINING: <what behavior, integration and tests remain>
-
-    For a DONE variant, repeat `REPO:` for each changed repository. DONE means the complete current scope is implemented, verified and committed, and every tree is clean. DONE_WITH_CONCERNS meets the same completion standard but names something the reviewer should inspect. Incomplete or unsafe work is BLOCKED.
-
-    For BLOCKED, repeat `REPO:` for each repository containing committed phase work and omit it when none exists. State what stopped the phase and what remains.
+Integration: <commands and results, or n/a>
+Acceptance: <checks and results>
+Concern: <self-contained concern; repeat or omit>
+Blocker: <for BLOCKED only>
+Remaining: <for BLOCKED only>
+Evidence-complete: yes
 ```
 
-**Placeholders:**
+Repeat the whole repository block so tests stay paired with their repository. DONE means the entire scope is implemented, verified, committed, and clean. DONE_WITH_CONCERNS meets the same completion standard and names something review must inspect. Incomplete or unsafe work is BLOCKED.
 
-- `[PHASE_ID]` — the current phase id.
-- `[SPEC_FILE]` — the approved spec.
-- `[SCOPE_BLOCK]` — the whole-remaining instruction, or `Phase brief: <PHASE_BRIEF>` naming the frozen brief file to read.
-- `[PROGRESS_FILE]` — the current build ledger.
-- `[REPOSITORIES]` — one `<canonical path> | branch <name> | base <sha>` line per phase repository.
+## Return
 
-**Implementer returns:** committed phase work and one status block as its entire final message. The controller independently verifies repository state, ranges, tests and acceptance evidence before review.
+Return only:
+
+```text
+STATUS: <DONE|DONE_WITH_CONCERNS|BLOCKED>
+EVIDENCE: <authorized evidence path>
+REPO_HEAD: <canonical path> | <sha>
+```
+
+Repeat `REPO_HEAD` for every repository represented in evidence; omit it only when BLOCKED produced no repository work. Put concerns, blockers, test detail, and acceptance detail in evidence, not the return message.

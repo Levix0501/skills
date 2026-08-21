@@ -1,79 +1,35 @@
-# Fix Wave Prompt Template
+# Finding-Wave Fixer
 
-One fresh fixer owns one complete review wave.
+Resolve one complete manifest-defined finding wave, verify the result, commit it, and write structured evidence. Read dynamic inputs from paths and ledger anchors in the manifest, not conversation context.
 
-**Purpose:** Resolve every open blocking finding coherently, verify the resulting landing, commit it and return a compact status block.
+## Validate and load
 
-```
-Subagent (general-purpose):
-  description: "Fix [PHASE_ID], round [FIX_ROUND]"
-  run_in_background: false
-  prompt: |
-    Own fix round [FIX_ROUND] for phase [PHASE_ID] through completion.
+Require `Manifest version: 1`, `Role: fixer`, a known `Mode` (`intermediate` or `final`), a known `Action` (`execute` or `evidence-recovery`), phase/generation/fix round, spec and ledger paths, frozen scope, authorized repositories with fix bases, supplied finding ids grouped by ledger anchor, reviewed package path/ranges, acceptance-evidence sources, evidence output path, and final `Manifest-complete: yes`.
 
-    ## Contract
+Reject malformed authority, a finding without one source line, or an unauthorized repository. Read the spec, scope, complete finding lines, package, evidence, and repository instructions. The spec, ledger, scope, manifests, packages, and other implement-directory files are read-only. You may write only the exact evidence output path.
 
-    Spec: [SPEC_FILE]
+## Execute
 
-    Current scope:
-    [SCOPE_BLOCK]
+For `Action: execute`, resolve every supplied finding, including Minor findings included in the wave. Fix root causes and supporting code without expanding the approved contract.
 
-    Read both in full. The spec defines required behavior; the scope block defines the current phase boundary. Neither is editable.
+Work only in authorized repositories. If another repository is required, return BLOCKED before changing it. Follow repository conventions, commit coherent changes, leave trees clean, and run affected repository tests, integration checks, and acceptance verification. Do not switch branches, push, or rewrite earlier history.
 
-    ## Findings
+In intermediate mode, preserve the frozen stable landing. In final mode, the scope is the whole approved build and any participating authorized repository may be changed when required by the wave.
 
-    [FINDINGS]
+If a finding is invalid or conflicts with the approved contract, do not force a change; record a `Concern` naming its id so the re-reviewer can decide. DONE_WITH_CONCERNS means all other actionable work is complete. Incomplete resolution is BLOCKED.
 
-    These are the open blocking finding lines from the current phase review wave. Resolve every one.
+For `Action: evidence-recovery`, make no source or history changes. Recollect verification at the manifest's immutable heads and write successor evidence.
 
-    ## Landing
+## Evidence and return
 
-    Authorized repositories and fix bases:
-    [REPOSITORIES]
+Use the same evidence schema as `implementer.md`: one repeatable repository block with repository-specific tests, then build-wide integration, acceptance, concerns, and `Evidence-complete: yes`. BLOCKED also records blocker and remaining finding ids.
 
-    Reviewed change package: [DIFF_FILE]
+Return only:
 
-    Use the findings, reviewed change and current code to understand each problem and fix its root cause. Make any supporting change needed for a coherent fix without expanding the approved scope.
-
-    Follow the instructions and conventions governing the code you change. Work only in the authorized repositories. If complete resolution requires another repository, return BLOCKED before changing it so the controller can add it to the wave.
-
-    Commit coherent changes, leave every named repository clean and run the tests, integration checks and affected acceptance verification needed to support the result. Do not edit the spec, phase brief or progress ledger; switch branches; push; or rewrite earlier history.
-
-    If a finding does not hold or conflicts with the approved contract, do not force a code change. Name the finding and your reason in a `CONCERN` line so the re-reviewer can decide it.
-
-    ## Return
-
-    Return only one compact status block in your final message.
-
-        STATUS: DONE
-        REPO: <path> | COMMIT: <sha> | TESTS: <commands and results>
-        INTEGRATION_TESTS: <commands and results, or n/a>
-        ACCEPTANCE: <affected phase acceptance checks and results>
-
-        STATUS: DONE_WITH_CONCERNS
-        REPO: <path> | COMMIT: <sha> | TESTS: <commands and results>
-        INTEGRATION_TESTS: <commands and results, or n/a>
-        ACCEPTANCE: <affected phase acceptance checks and results>
-        CONCERN: <finding id when applicable — one self-contained concern; repeat as needed>
-
-        STATUS: BLOCKED
-        REPO: <path> | COMMIT: <sha> | TESTS: <commands and results>
-        BLOCKER: <what stopped the wave>
-        REMAINING: <which findings remain and what is left>
-
-    For a DONE variant, repeat `REPO:` for each changed repository and omit it when no code change was warranted. DONE means every finding was resolved. DONE_WITH_CONCERNS means all actionable work is complete but the re-reviewer must decide a stated concern or disputed finding.
-
-    For BLOCKED, repeat `REPO:` for each repository containing committed fix work and omit it when none exists. Commit only coherent work and identify everything that remains.
+```text
+STATUS: <DONE|DONE_WITH_CONCERNS|BLOCKED>
+EVIDENCE: <authorized evidence path>
+REPO_HEAD: <canonical path> | <sha>
 ```
 
-**Placeholders:**
-
-- `[PHASE_ID]` — the phase whose landing is being fixed.
-- `[FIX_ROUND]` — the authorized round number.
-- `[SPEC_FILE]` — the approved spec.
-- `[SCOPE_BLOCK]` — the same frozen current-scope contract used for implementation and review.
-- `[FINDINGS]` — every open blocking finding copied verbatim from the current review wave.
-- `[REPOSITORIES]` — one line per authorized repository: `<canonical path> | branch <name> | fix base <sha>`.
-- `[DIFF_FILE]` — the reviewed phase or prior fix package produced by `scripts/review-package`.
-
-**Fixer returns:** committed fixes and one status block directly to the controller. The controller mechanically verifies the result; the fresh re-reviewer decides whether each finding is addressed or invalid.
+Repeat `REPO_HEAD` for every repository represented in evidence. Put findings, concerns, blockers, and verification detail in the evidence file, not the return message.

@@ -39,7 +39,7 @@ Execute this dispatch:
 Return only the format required by the role contract.
 ```
 
-Keep this prompt below 1 KB. Agents still read every authoritative input named by the manifest.
+Keep this prompt below 1 KB. Each role reads every authoritative input named by its manifest.
 
 ## 1. Resolve spec
 
@@ -111,6 +111,7 @@ Phase <n>: review — final clean — coverage: <requirement/criterion ids or na
 Phase <n>: fix round <R> repositories — <repo-a> [<branch>@<base7>]; ...
 Phase <n>: fix round <R> concern — <verbatim fixer concern>
 Phase <n>: fix round <R> — <repo-a> <base7>..<head7>; ... — verified: <summary>
+Phase <n>: re-review <R> repositories — <repo [first-base7..head7]>; ...
 Phase <n>: re-review <R> — open: <finding ids>
 Phase <n>: re-review <R> — clean
 Phase <n>: re-review <R> — open: <finding ids> — coverage: <final coverage>
@@ -120,8 +121,6 @@ Phase <n>: acceptance pending — <acceptance ids or names> — <external depend
 Phase <n>: acceptance verified — <acceptance ids or names> — <evidence>
 Build: abandoned — <reason>
 ```
-
-Legacy `review: minor deferred` entries remain readable but new runs never write them.
 
 ### Carried open set
 
@@ -163,7 +162,7 @@ For an intermediate phase, write and freeze only the current brief:
 <spec acceptance criteria plus checks for carried findings>
 ```
 
-If a carried finding lives in a repository otherwise outside the next phase, include that repository with a new phase base. An accepted phase is a historical reviewed checkpoint, not a repository lock.
+If a carried finding lives in a repository otherwise outside the next phase, include that repository with a new phase base. A later phase may reopen an accepted phase's repository when its frozen scope requires it.
 
 ## 5. Dispatch and implementation
 
@@ -209,9 +208,9 @@ Required role fields:
 
 For reviewer and re-reviewer manifests, set the first new finding id to one greater than the highest finding id already recorded anywhere in the ledger, or `F1` when the ledger has none.
 
-General repository safety belongs in role contracts. Put project-specific warnings in the spec, brief, or a ledger ruling and reference that source. Complete finding lines are forbidden in manifests; record the review return under a ledger anchor before dispatching its fixer or later owner.
+Role contracts enforce general repository safety. Reference project-specific warnings through the spec, brief, or a ledger ruling. Manifests name finding ids and source anchors; record each new complete finding line in the ledger before dispatching its fixer or later owner.
 
-Manifests are immutable. Reuse a complete manifest after a crash only when state and every referenced input are unchanged. A correction, repository expansion, changed input, or regenerated temporary package creates the next `D<n>`; never edit the prior file. Append a ruling only for semantic changes, not a routine package-path refresh.
+Manifests are immutable. Reuse a complete manifest after a crash only when state and every referenced input are unchanged. A correction, repository expansion, changed input, or regenerated temporary package creates the next `D<n>`; never edit the prior file. Semantic changes append a ruling; routine package regeneration creates only a successor manifest.
 
 Reject a manifest with an unknown version/role/mode/action, missing required field, unauthorized repository, or missing terminal marker.
 
@@ -254,25 +253,23 @@ For incomplete implementation, inspect committed work and resume the same implem
 
 ## 6. Review, fix, and re-review
 
-`scripts/review-package` output is temporary navigation material, never run state. Generate one package for the active review manifest and preserve the repository ranges needed to regenerate it.
+Generate one temporary `scripts/review-package` package for the active review manifest and preserve the repository ranges needed to regenerate it.
+
+For every review or re-review supplied carried ids, append the complete `carried verdicts` summary before deciding its outcome; the latest verdict controls the open set. Anchor only findings first admitted by the current result under its `blocking`, `carried`, or `open` entry. Supplied findings retain their original source lines and are referenced by id.
+
+Before the first `Action: execute` fixer dispatch for any round, append `Phase <n>: fix round <R> repositories` with each authorized repository's canonical path, branch, and current HEAD as its fix base. If a successor execute manifest adds a repository, append the complete expanded set; evidence recovery reuses the recorded bases.
+
+A finding that proves an approved requirement is unsatisfied or the landing is unsafe is contract-blocking and cannot be carried or parked. Treat it as Important when the reviewer returned Minor.
 
 ### Intermediate phase
 
 Dispatch the reviewer over exact phase ranges. It returns a verdict for every incoming carried id and a finding block.
 
-Whenever carried ids were supplied, append the complete `carried verdicts` summary before deciding the phase outcome, including on a clean or blocking review.
-
-- Clean: accept the phase.
+- Clean, meaning no new findings and every carried id is `addressed` or `invalid`: accept the phase.
 - Minor-only, including `not_addressed` carried ids: append `review — carried`, the new complete lines, and `accepted ... — carry <open ids>`; dispatch no fixer.
 - Any Critical/Important: append `review — blocking` followed by the wave's new complete lines, including new Minor findings; `not_addressed` carried ids join the wave through their existing source anchors. Automatically authorize fix round 1.
 
-A Minor that shows an unsatisfied requirement or unsafe landing is Important regardless of the returned label.
-
-The fixer receives all ids by ledger anchor, never copied lines. Before the first `Action: execute` fixer dispatch for a round, append `Phase <n>: fix round <R> repositories` with each authorized repository's canonical path, branch, and current HEAD as its fix base. If a successor execute manifest adds a repository, append the complete expanded set; evidence recovery reuses the recorded bases. After a verified fix, dispatch one fresh re-reviewer over the fix ranges. It gives a verdict for every supplied id and may admit only fix-caused new findings.
-
-After any intermediate or final re-review whose supplied ids include carried findings, append an updated complete `Phase <n>: carried verdicts` summary for those carried ids before deciding the round outcome. This later verdict supersedes their earlier verdict for open-set computation without duplicating their source lines.
-
-Anchor each newly admitted re-review finding exactly once under that round's `open` or `carried` entry. Supplied findings keep their original source lines and are referenced only by id.
+The fixer receives all ids by ledger anchor, never copied lines. After a verified fix, dispatch one fresh re-reviewer over the fix ranges. It gives a verdict for every supplied id and may admit only fix-caused new findings.
 
 - Any original/new Critical or Important remains blocking and enters the user gate.
 - With no Critical/Important, every original `not_addressed` or new Minor is carried and the phase is accepted.
@@ -282,22 +279,18 @@ Only fix round 1 is automatic for an intermediate phase.
 
 ### Final phase
 
-After final implementation, replace phase-scoped review with one unrestricted whole-spec review at current heads. Regenerate one cumulative package covering every participating repository from its first build base to current HEAD. The reviewer checks the entire approved spec, all acceptance evidence, cross-phase/repository integration, compatibility, carried verdicts, regressions, and landing safety.
+For a stable set of final heads, append `Phase <n>: final review repositories` with every cumulative first-build-base-to-current-HEAD range, then begin closure with one unrestricted whole-spec review at those heads using one cumulative package.
 
-Acceptance-evidence sources are the manifest's evidence paths and ledger anchors, not a separate index. The reviewer re-derives the complete requirement/criterion checklist from the spec. Record repository ranges and returned coverage under `final findings` or `final clean`; use exact section/criterion names when the spec lacks ids.
+Use the manifest's evidence paths and ledger anchors as acceptance-evidence sources. The reviewer re-derives the complete requirement/criterion checklist from the spec. Record its returned coverage under `final findings` or `final clean`; use exact section/criterion names when the spec lacks ids.
 
-When carried ids were supplied, append their complete `carried verdicts` summary before the final review status. A final `not_addressed` id keeps its original source line and joins the final fixer wave.
+A final `not_addressed` carried id joins the final fixer wave through its original source anchor.
 
 Any final finding, including Minor or `not_addressed` carried work, automatically authorizes final fix round 1. The final fixer may change any participating repository required by the complete wave.
 
-Before each final re-review, verify latest heads/ranges, regenerate one current cumulative package, and re-derive the spec checklist. The re-reviewer gives every supplied verdict, reconfirms whole-spec coverage at current heads, and admits a new finding only when:
+Before each final re-review, verify the latest heads, append `Phase <n>: re-review <R> repositories` with every cumulative first-build-base-to-current-HEAD range, regenerate the cumulative package, and re-derive the spec checklist. The re-reviewer gives every supplied verdict, reconfirms whole-spec coverage at those heads, and admits a new finding only when:
 
 - the fix caused it; or
 - it names the exact requirement, acceptance criterion, integration, compatibility, or safety coverage claim it invalidates.
-
-It does not reopen unrelated pre-existing quality issues.
-
-Under each final re-review `open` entry, append complete lines only for findings first admitted in that round. Supplied findings retain their original ledger anchors.
 
 Final round authority:
 
@@ -305,7 +298,7 @@ Final round authority:
 2. A Minor-only result after re-review 1 authorizes ordinal round 2 once.
 3. Any user-authorized round 2 consumes that allowance; no later round is automatic.
 4. Critical/Important after re-review goes to the user gate.
-5. If the user parks all round-1 Critical/Important findings and only Minor findings remain, automatic ordinal round 2 is still available.
+5. If the user parks all eligible round-1 Critical/Important findings and only Minor findings remain, automatic ordinal round 2 is still available.
 6. After ordinal round 2, the controller may park a genuine residual Minor only with reason, residual risk, and evidence that it affects no requirement, acceptance criterion, compatibility promise, or safety property. Otherwise promote it to Important.
 
 Record controller parking as:
@@ -325,14 +318,14 @@ Only the user may accept/defer Critical or Important risk, authorize a non-autom
 | Defer | `Phase <n>: review: parked — F<n> — Ruling: deferred by user — <reason and cost>` |
 | Stop | append a ruling and `Build: abandoned — <reason>` |
 
-Present the complete open wave. A user-authorized round handles every open severity. Critical/Important may be parked only when the accepted contract and safe landing remain true; otherwise fix, stop, or supersede the spec.
+Present the complete open wave. A user-authorized round handles every open severity. Contract-blocking findings cannot be parked; fix them, stop, or supersede the spec. The user may park other Critical/Important risk with a recorded reason and residual risk while preserving the accepted contract and safe landing.
 
 ## 8. Finish
 
 Finish on coverage, not predicted phase count. Confirm:
 
 - every requirement is covered by accepted scope and review evidence;
-- the latest final review/re-review coverage entry names the whole spec and current head of every participating repository;
+- the latest final review/re-review coverage entry covers the whole spec and is paired with cumulative repository ranges at every current HEAD;
 - every carried id has one source, a verdict, and no open owner;
 - every unparked finding is closed and every parked finding has the required authority/evidence;
 - every tree is clean and every current range is reviewed; and
@@ -340,7 +333,7 @@ Finish on coverage, not predicted phase count. Confirm:
 
 If external acceptance evidence is pending, record the dependency and verification procedure and stop without completing. When evidence becomes available, append its verification and repeat the finish gate.
 
-If a current repository HEAD is beyond the latest final coverage entry, do not complete. Regenerate the cumulative package at the current heads and re-enter the final whole-spec review loop so every unreviewed range receives coverage and finding resolution.
+If a current repository HEAD is beyond the ranges paired with the latest final coverage entry, invalidate that final-review sequence. Record the new cumulative ranges, regenerate the package, and restart with an unrestricted whole-spec review at the current heads.
 
 Append `Build: complete`, collect the result, then delete only this spec's implement directory. Report repository ranges, outcomes, tests, acceptance evidence, carried closures, parked findings, and rulings. Integration remains the user's next decision.
 
@@ -362,4 +355,4 @@ Read the spec and ledger, verify its first line names the spec, then verify ever
 - `Build: complete` with a leftover implement directory → collect the recorded result, delete only that spec's directory, and do not repeat completion work.
 - `Build: abandoned` → report the recorded terminal state and keep the implement directory.
 
-Legacy ledgers remain readable. Derive finality from frozen scope, accepted requirements, and the open carried set; do not backfill a separate kind entry. If the ledger/run directory is lost, do not infer acceptance from trailers alone: inspect code/history against the spec, repeat uncertain verification/review, then use verified heads as the recovery baseline.
+For a legacy ledger, exclude `review: minor deferred` entries from the carried set and derive finality from frozen scope, accepted requirements, and open carried ids without backfilling entries. If the ledger/run directory is lost, inspect code/history against the spec, repeat uncertain verification/review, then use verified heads as the recovery baseline; commit trailers alone do not establish acceptance.

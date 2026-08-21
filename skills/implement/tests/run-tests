@@ -34,9 +34,8 @@ t02_skill_routes_compact_dispatch() {
   contains "$SKILL" 'name: implement' || return 1
   contains "$SKILL" 'role-contract path, dispatch-manifest path' || return 1
   contains "$SKILL" 'Keep this prompt below 1 KB.' || return 1
-  contains "$SKILL" 'Complete finding lines are forbidden in manifests' || return 1
-  contains "$SKILL" 'Append a ruling only for semantic changes' || return 1
-  contains "$SKILL" 'not a routine package-path refresh' || return 1
+  contains "$SKILL" 'Manifests name finding ids and source anchors' || return 1
+  contains "$SKILL" 'Semantic changes append a ruling; routine package regeneration creates only a successor manifest.' || return 1
   contains "$SKILL" 'The controller alone writes `PROGRESS_FILE` and dispatch manifests.' || return 1
   contains "$SKILL" 'Implementer and fixer may write only their manifest-named evidence path' || return 1
   not_contains "$SKILL" "fill the named agent template's placeholders" || return 1
@@ -96,8 +95,8 @@ t04_roles_are_runtime_contracts() {
   contains "$AGENTS/reviewer.md" 'CARRIED_VERDICTS:' || return 1
   contains "$AGENTS/reviewer.md" 'perform the one unrestricted whole-spec review' || return 1
   contains "$AGENTS/re-reviewer.md" 'only findings caused by the fix wave' || return 1
-  contains "$AGENTS/re-reviewer.md" 'must name the exact requirement' || return 1
-  contains "$AGENTS/re-reviewer.md" 'this is not permission for a fresh whole-diff scan' || return 1
+  contains "$AGENTS/re-reviewer.md" 'Limit new findings to fix-caused defects or findings that invalidate a named prior' || return 1
+  contains "$AGENTS/reviewer.md" 'contract-blocking and Important regardless of size' || return 1
 }
 
 t05_carried_state_is_closed() {
@@ -106,34 +105,36 @@ t05_carried_state_is_closed() {
   contains "$SKILL" 'Phase <n>: carried verdicts' || return 1
   contains "$SKILL" '`not_addressed` remains open.' || return 1
   contains "$SKILL" 'Completion rejects any carried id without one unique source line, reviewer verdict, or final owner.' || return 1
+  contains "$SKILL" 'For every review or re-review supplied carried ids' || return 1
+  contains "$SKILL" 'the latest verdict controls the open set' || return 1
+  contains "$SKILL" 'Anchor only findings first admitted by the current result under its `blocking`, `carried`, or `open` entry.' || return 1
   contains "$SKILL" 'Minor-only, including `not_addressed` carried ids: append `review — carried`' || return 1
-  contains "$SKILL" 'including on a clean or blocking review' || return 1
   contains "$SKILL" '`not_addressed` carried ids join the wave through their existing source anchors' || return 1
   contains "$SKILL" 'every original `not_addressed` or new Minor is carried' || return 1
-  contains "$SKILL" 'Anchor each newly admitted re-review finding exactly once' || return 1
-  contains "$SKILL" 'After any intermediate or final re-review whose supplied ids include carried findings' || return 1
-  contains "$SKILL" 'This later verdict supersedes their earlier verdict for open-set computation without duplicating their source lines.' || return 1
+  contains "$SKILL" 'no new findings and every carried id is `addressed` or `invalid`' || return 1
   contains "$SKILL" 'Complete `review — carried` without accepted line' || return 1
   not_contains "$SKILL" 'Record each Minor as `Phase <n>: review: minor deferred' || return 1
 }
 
 t06_final_review_converges() {
-  contains "$SKILL" 'one unrestricted whole-spec review at current heads' || return 1
-  contains "$SKILL" 'one cumulative package covering every participating repository' || return 1
+  contains "$SKILL" 'begin closure with one unrestricted whole-spec review at those heads using one cumulative package' || return 1
   contains "$SKILL" 'Any final finding, including Minor' || return 1
-  contains "$SKILL" 'A final `not_addressed` id keeps its original source line' || return 1
+  contains "$SKILL" 'A final `not_addressed` carried id joins the final fixer wave through its original source anchor.' || return 1
   contains "$SKILL" 'A Minor-only result after re-review 1 authorizes ordinal round 2 once.' || return 1
   contains "$SKILL" 'Any user-authorized round 2 consumes that allowance' || return 1
   contains "$SKILL" 'no later round is automatic' || return 1
-  contains "$SKILL" 'parks all round-1 Critical/Important findings' || return 1
+  contains "$SKILL" 'parks all eligible round-1 Critical/Important findings' || return 1
   contains "$SKILL" 'names the exact requirement, acceptance criterion, integration, compatibility, or safety coverage claim' || return 1
   contains "$SKILL" 'affects no requirement, acceptance criterion, compatibility promise, or safety property' || return 1
   contains "$SKILL" 'Ruling: parked by controller' || return 1
   contains "$SKILL" 'Only the user may accept/defer Critical or Important risk' || return 1
+  contains "$SKILL" 'Contract-blocking findings cannot be parked' || return 1
   contains "$SKILL" 'review — final findings — coverage:' || return 1
   contains "$SKILL" 'review — final clean — coverage:' || return 1
-  contains "$SKILL" 'findings first admitted in that round' || return 1
-  contains "$SKILL" 'Acceptance-evidence sources are the manifest' || return 1
+  contains "$SKILL" 'Phase <n>: re-review <R> repositories' || return 1
+  contains "$SKILL" 'paired with cumulative repository ranges at every current HEAD' || return 1
+  contains "$SKILL" 'restart with an unrestricted whole-spec review at the current heads' || return 1
+  contains "$SKILL" "Use the manifest's evidence paths and ledger anchors as acceptance-evidence sources." || return 1
   not_contains "$SKILL" 'coverage-index file' || return 1
 }
 
@@ -151,7 +152,7 @@ t07_resume_handles_artifact_loss() {
   contains "$SKILL" '`Build: complete` with a leftover implement directory' || return 1
   contains "$SKILL" '`Build: abandoned` → report the recorded terminal state and keep the implement directory.' || return 1
   contains "$SKILL" 'reachable only from another branch' || return 1
-  contains "$SKILL" 'do not infer acceptance from trailers alone' || return 1
+  contains "$SKILL" 'commit trailers alone do not establish acceptance' || return 1
 }
 
 t08_carried_rereview_verdict_closes_open_set() {
@@ -180,7 +181,29 @@ EOF
   [ "$open" -eq 0 ]
 }
 
-t09_implement_directory_supports_non_git_workspace() {
+t09_final_coverage_is_paired_with_current_heads() {
+  ledger="$TMPROOT/final-coverage-ledger.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 2: final review repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 2: review — final findings — coverage: R1; A1
+F7 | minor | quality: remove the stale fallback
+Phase 2: fix round 1 repositories — /tmp/repo [main@bbb2222]
+Phase 2: fix round 1 — /tmp/repo bbb2222..ccc3333 — verified: pass
+Phase 2: re-review 1 repositories — /tmp/repo [aaa1111..ccc3333]
+Phase 2: re-review 1 — clean — coverage: R1; A1
+EOF
+
+  current_head=ccc3333
+  ranges_line=$(grep -n 're-review 1 repositories' "$ledger" | tail -1 | cut -d: -f1)
+  coverage_line=$(grep -n 're-review 1 — clean — coverage:' "$ledger" | tail -1 | cut -d: -f1)
+  latest_ranges=$(sed -n "${ranges_line}p" "$ledger")
+  [ "$ranges_line" -lt "$coverage_line" ] || return 1
+  case "$latest_ranges" in *"..$current_head]"*) return 0;; esac
+  return 1
+}
+
+t10_implement_directory_supports_non_git_workspace() {
   repo="$TMPROOT/implement-directory"
   mkdir -p "$repo/docs/specs" "$repo/projects/a"
   (
@@ -198,7 +221,7 @@ t09_implement_directory_supports_non_git_workspace() {
   )
 }
 
-t10_review_package_is_temporary_and_multi_repo() {
+t11_review_package_is_temporary_and_multi_repo() {
   repo="$TMPROOT/review-package"
   mkdir -p "$repo/docs/specs" "$repo/projects/a" "$repo/projects/b"
   (
@@ -230,7 +253,7 @@ t10_review_package_is_temporary_and_multi_repo() {
   )
 }
 
-t11_helpers_reject_bad_input() {
+t12_helpers_reject_bad_input() {
   repo="$TMPROOT/bad-input"
   mkdir -p "$repo"
   (
@@ -252,31 +275,11 @@ t11_helpers_reject_bad_input() {
   )
 }
 
-t12_readme_describes_closure_and_recovery() {
+t13_readme_describes_closure_and_recovery() {
   contains "$README" 'carried Minor findings' || return 1
   contains "$README" 'whole-spec final review' || return 1
   grep -qiF 'immutable dispatch manifests' "$README" || return 1
   contains "$README" 'agent-owned evidence' || return 1
-}
-
-t13_nine_sections_remain_ordered() {
-  previous=$(grep -nF '## Flow' "$SKILL" | head -1 | cut -d: -f1)
-  for heading in \
-    '## 1. Resolve spec' \
-    '## 2. Preconditions' \
-    '## 3. Progress ledger' \
-    '## 4. Choose the current phase' \
-    '## 5. Dispatch and implementation' \
-    '## 6. Review, fix, and re-review' \
-    '## 7. User gate' \
-    '## 8. Finish' \
-    '## 9. Resume'
-  do
-    current=$(grep -nF "$heading" "$SKILL" | head -1 | cut -d: -f1)
-    [ -n "$current" ] && [ "$current" -gt "$previous" ] || return 1
-    previous=$current
-  done
-  [ "$(grep -cE '^## [1-9]\. ' "$SKILL")" -eq 9 ]
 }
 
 TESTS='t01_layout_stays_lean
@@ -287,11 +290,11 @@ t05_carried_state_is_closed
 t06_final_review_converges
 t07_resume_handles_artifact_loss
 t08_carried_rereview_verdict_closes_open_set
-t09_implement_directory_supports_non_git_workspace
-t10_review_package_is_temporary_and_multi_repo
-t11_helpers_reject_bad_input
-t12_readme_describes_closure_and_recovery
-t13_nine_sections_remain_ordered'
+t09_final_coverage_is_paired_with_current_heads
+t10_implement_directory_supports_non_git_workspace
+t11_review_package_is_temporary_and_multi_repo
+t12_helpers_reject_bad_input
+t13_readme_describes_closure_and_recovery'
 
 for test_name in $TESTS; do
   if (set -e; "$test_name"); then

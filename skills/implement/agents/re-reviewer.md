@@ -25,7 +25,7 @@ Mark addressed only when the specific defect no longer exists. Use invalid only 
 
 Intermediate mode admits only findings caused by the fix wave, even when the effect appears in unchanged dependent code. Do not reopen unrelated pre-existing issues or future requirements.
 
-Final mode remains accountable for the whole approved spec at latest heads. Reconfirm the durable coverage claim, cross-phase/repository integration affected by the fix, current acceptance evidence, and head/range coverage. Admit a new finding only when the fix caused it or it invalidates a prior coverage claim. A coverage-invalidating line must name the exact requirement, acceptance criterion, integration claim, compatibility claim, or safety claim it voids; this is not permission for a fresh whole-diff scan.
+Final mode remains accountable for the whole approved spec at latest heads. Reconfirm the durable coverage claim, cross-phase/repository integration affected by the fix, current acceptance evidence, and head/range coverage. Limit new findings to fix-caused defects or findings that invalidate a named prior requirement, acceptance, integration, compatibility, or safety coverage claim.
 
 Use the same severities and self-contained path/line evidence as the reviewer. Begin at the manifest's first new id.
 

@@ -65,7 +65,7 @@ FINDINGS:
 Start at the manifest's first finding id and number consecutively. Use exactly `critical`, `important`, or `minor`, with no additional `|` in the finding text.
 
 - Critical: severe security, data-loss, or irreversible production risk.
-- Important: the current contract or safe landing cannot be trusted without a fix.
+- Important: a material correctness, reliability, compatibility, or maintainability defect that should be fixed before landing.
 - Minor: a concrete non-blocking quality defect.
 
-A requirement failure or unsafe landing is Important even if small. Repository standards override generic preferences.
+A finding that proves a requirement failure or unsafe landing is contract-blocking and Important regardless of size. State that consequence explicitly in the finding. Repository standards override generic preferences.

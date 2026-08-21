@@ -22,6 +22,263 @@ fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; }
 contains() { grep -qF "$2" "$1"; }
 not_contains() { ! grep -qF "$2" "$1"; }
 
+recovery_manifest_valid() {
+  manifest=$1
+  records="$TMPROOT/recovery-manifest-records.$$"
+
+  grep -qxF 'Manifest version: 1' "$manifest" || return 1
+  grep -Eq '^Role: (implementer|fixer)$' "$manifest" || return 1
+  grep -qxF 'Action: evidence-recovery' "$manifest" || return 1
+  grep -qxF 'Manifest-complete: yes' "$manifest" || return 1
+
+  awk '
+    /^REPOSITORY:$/ {
+      if (inside) exit 2
+      inside = 1; blocks++; path = branch = base = head = ""
+      next
+    }
+    inside && /^Path: / { path = substr($0, 7); next }
+    inside && /^Branch: / { branch = substr($0, 9); next }
+    inside && /^Base: / { base = substr($0, 7); next }
+    inside && /^Head: / { head = substr($0, 7); next }
+    /^END_REPOSITORY$/ {
+      if (!inside || path == "" || branch == "" || base == "" || head == "") exit 2
+      print path "\t" branch "\t" base "\t" head
+      inside = 0
+    }
+    END { if (inside || blocks == 0) exit 2 }
+  ' "$manifest" >"$records" || return 1
+
+  tab=$(printf '\t')
+  while IFS="$tab" read -r path branch base head; do
+    [ -n "$path" ] && [ -n "$branch" ] && [ -n "$base" ] && [ -n "$head" ] || return 1
+    canonical=$(CDPATH= cd -- "$path" 2>/dev/null && pwd -P) || return 1
+    [ "$canonical" = "$path" ] || return 1
+    [ "$(git -C "$path" branch --show-current)" = "$branch" ] || return 1
+    [ "$(git -C "$path" rev-parse HEAD)" = "$head" ] || return 1
+    git -C "$path" merge-base --is-ancestor "$base" "$head" || return 1
+    [ -z "$(git -C "$path" status --porcelain)" ] || return 1
+  done <"$records"
+}
+
+recovery_evidence_matches_manifest() {
+  manifest=$1
+  evidence=$2
+  manifest_heads="$TMPROOT/manifest-heads.$$"
+  evidence_heads="$TMPROOT/evidence-heads.$$"
+
+  for item in "$manifest:$manifest_heads" "$evidence:$evidence_heads"; do
+    source_file=${item%%:*}
+    output_file=${item#*:}
+    awk '
+      /^REPOSITORY:$/ { inside = 1; path = head = ""; next }
+      inside && /^Path: / { path = substr($0, 7); next }
+      inside && /^Head: / { head = substr($0, 7); next }
+      /^END_REPOSITORY$/ {
+        if (!inside || path == "" || head == "") exit 2
+        print path " | " head
+        inside = 0
+      }
+      END { if (inside) exit 2 }
+    ' "$source_file" | sort >"$output_file" || return 1
+    [ -s "$output_file" ] || return 1
+  done
+
+  cmp -s "$manifest_heads" "$evidence_heads"
+}
+
+pending_ids_closed_by_evidence_review() {
+  ledger=$1
+  phase=$2
+  verdict_line=$3
+  pending=$(grep -E "^Phase $phase: acceptance pending —" "$ledger" | tail -1) || return 1
+  pending_ids=${pending#*findings: }
+  pending_ids=${pending_ids%% — acceptance:*}
+  verdicts=$(sed -n "${verdict_line}p" "$ledger")
+  verdicts=${verdicts#*verdicts — }
+
+  for finding in $pending_ids; do
+    status=$(printf '%s\n' "$verdicts" | tr ';' '\n' | awk -v id="$finding" '$1 == id { print $2; exit }')
+    case "$status" in addressed|invalid) ;; *) return 1;; esac
+  done
+}
+
+acceptance_verified_covers_pending() {
+  ledger=$1
+  phase=$2
+  verified_line=$3
+  pending=$(grep -E "^Phase $phase: acceptance pending —" "$ledger" | tail -1) || return 1
+  pending_ids=${pending#*findings: }
+  pending_ids=${pending_ids%% — acceptance:*}
+  verified=$(sed -n "${verified_line}p" "$ledger")
+  verified_ids=${verified#*findings: }
+  verified_ids=${verified_ids%% — acceptance:*}
+
+  for finding in $pending_ids; do
+    case " $verified_ids " in *" $finding "*) ;; *) return 1;; esac
+  done
+}
+
+intermediate_post_gate_transition() {
+  ledger=$1
+  phase=$2
+  scope=$3
+
+  if grep -qE "^Phase $phase: accepted — " "$ledger"; then
+    printf '%s\n' 'choose-phase'
+    return
+  fi
+
+  pending_line=$(last_matching_line "$ledger" "^Phase $phase: acceptance pending —")
+  received_line=$(last_matching_line "$ledger" "^Phase $phase: acceptance evidence received —")
+  verified_line=$(last_matching_line "$ledger" "^Phase $phase: acceptance verified —")
+  pending_closed=0
+  if [ "$pending_line" -gt 0 ] && [ "$verified_line" -gt "$pending_line" ] && acceptance_verified_covers_pending "$ledger" "$phase" "$verified_line"; then
+    pending_closed=1
+  fi
+  if [ "$pending_line" -gt 0 ] && [ "$pending_closed" -eq 0 ]; then
+    if [ "$pending_line" -gt "$received_line" ]; then
+      printf '%s\n' 'await-evidence'
+      return
+    fi
+    ranges_line=$(last_matching_line "$ledger" "^Phase $phase: evidence review [0-9]+ repositories —")
+    verdict_line=$(last_matching_line "$ledger" "^Phase $phase: evidence review [0-9]+ — verdicts —")
+    outcome_line=$(last_matching_line "$ledger" "^Phase $phase: evidence review [0-9]+ — (open:|clean)")
+    if [ "$ranges_line" -lt "$received_line" ] || [ "$verdict_line" -le "$ranges_line" ] || [ "$outcome_line" -le "$verdict_line" ]; then
+      printf '%s\n' 'evidence-review'
+      return
+    fi
+    if ! pending_ids_closed_by_evidence_review "$ledger" "$phase" "$verdict_line"; then
+      printf '%s\n' 'await-evidence'
+      return
+    fi
+    printf '%s\n' 'append-acceptance-verified'
+    return
+  fi
+
+  open_line=$(grep -E "^Phase $phase: (re-review [0-9]+|evidence review [0-9]+) — open: " "$ledger" | tail -1) || true
+  if [ -z "$open_line" ]; then
+    printf 'append:Phase %s: accepted — %s\n' "$phase" "$scope"
+    return
+  fi
+  open_ids=${open_line#*open: }
+  open_ids=${open_ids%% — coverage:*}
+  carry=''
+
+  for finding in $open_ids; do
+    if grep -qF "Phase $phase: review: parked — $finding —" "$ledger"; then
+      continue
+    fi
+    severity=$(awk -F ' *\\| *' -v id="$finding" '$1 == id { print $2; exit }' "$ledger")
+    case "$severity" in
+      critical|important)
+        case "$open_line" in
+          *'evidence review '*)
+            if grep -qE "^Phase $phase: fix round 1 repositories —" "$ledger"; then
+              printf '%s\n' 'user-gate'
+            else
+              printf '%s\n' 'fix-round-1'
+            fi
+            ;;
+          *) printf '%s\n' 'user-gate';;
+        esac
+        return
+        ;;
+      minor)
+        carry="${carry}${carry:+ }$finding"
+        ;;
+      *) return 1;;
+    esac
+  done
+
+  if [ -n "$carry" ]; then
+    printf 'append:Phase %s: accepted — %s — carry %s\n' "$phase" "$scope" "$carry"
+  else
+    printf 'append:Phase %s: accepted — %s\n' "$phase" "$scope"
+  fi
+}
+
+last_matching_line() {
+  file=$1
+  pattern=$2
+  line=$(grep -nE "$pattern" "$file" | tail -1 | cut -d: -f1) || true
+  printf '%s\n' "${line:-0}"
+}
+
+final_transition() {
+  ledger=$1
+  phase=$2
+  current_head=$3
+
+  pending_line=$(last_matching_line "$ledger" "^Phase $phase: acceptance pending —")
+  received_line=$(last_matching_line "$ledger" "^Phase $phase: acceptance evidence received —")
+  verified_line=$(last_matching_line "$ledger" "^Phase $phase: acceptance verified —")
+  if [ "$pending_line" -gt "$received_line" ]; then
+    printf '%s\n' 'await-evidence'
+    return
+  fi
+
+  ranges_line=$(last_matching_line "$ledger" "^Phase $phase: (final review|re-review [0-9]+|evidence review [0-9]+) repositories —")
+  [ "$ranges_line" -gt 0 ] || { printf '%s\n' 'final-review'; return; }
+  ranges=$(sed -n "${ranges_line}p" "$ledger")
+  case "$ranges" in
+    *"..$current_head]"*) ;;
+    *) printf '%s\n' 'full-final-review'; return;;
+  esac
+
+  coverage_line=$(last_matching_line "$ledger" "^Phase $phase: (review — final (clean|findings)|re-review [0-9]+ — (clean|open:.*) — coverage:|evidence review [0-9]+ — (clean|open:.*) — coverage:)")
+  [ "$coverage_line" -gt 0 ] || { printf '%s\n' 'final-review'; return; }
+
+  pending_closed=0
+  if [ "$pending_line" -gt 0 ] && [ "$verified_line" -gt "$pending_line" ] && acceptance_verified_covers_pending "$ledger" "$phase" "$verified_line"; then
+    pending_closed=1
+  fi
+  if [ "$pending_line" -gt 0 ] && [ "$pending_closed" -eq 0 ]; then
+    evidence_ranges_line=$(last_matching_line "$ledger" "^Phase $phase: evidence review [0-9]+ repositories —")
+    verdict_line=$(last_matching_line "$ledger" "^Phase $phase: evidence review [0-9]+ — verdicts —")
+    evidence_coverage_line=$(last_matching_line "$ledger" "^Phase $phase: evidence review [0-9]+ — (clean|open:.*) — coverage:")
+    if [ "$evidence_ranges_line" -lt "$received_line" ] || [ "$verdict_line" -le "$evidence_ranges_line" ] || [ "$evidence_coverage_line" -le "$verdict_line" ]; then
+      printf '%s\n' 'evidence-review'
+      return
+    fi
+    if ! pending_ids_closed_by_evidence_review "$ledger" "$phase" "$verdict_line"; then
+      printf '%s\n' 'await-evidence'
+      return
+    fi
+    evidence_coverage=$(sed -n "${evidence_coverage_line}p" "$ledger")
+    case "$evidence_coverage" in
+      *' — open:'*) printf '%s\n' 'final-routing'; return;;
+    esac
+    printf '%s\n' 'append-acceptance-verified'
+    return
+  fi
+
+  coverage=$(sed -n "${coverage_line}p" "$ledger")
+  case "$coverage" in
+    *'final findings'*|*' — open:'*) printf '%s\n' 'final-routing'; return;;
+  esac
+
+  accepted_line=$(last_matching_line "$ledger" "^Phase $phase: accepted —")
+  if [ "$accepted_line" -lt "$coverage_line" ]; then
+    printf '%s\n' 'append-final-accepted'
+  else
+    printf '%s\n' 'complete'
+  fi
+}
+
+next_fix_round() {
+  ledger=$1
+  phase=$2
+  awk -v prefix="Phase $phase: fix round " '
+    index($0, prefix) == 1 && / repositories —/ {
+      value = substr($0, length(prefix) + 1)
+      sub(/ .*/, "", value)
+      if (value + 0 > max) max = value + 0
+    }
+    END { print max + 1 }
+  ' "$ledger"
+}
+
 t01_layout_stays_lean() {
   [ -x "$IMPLEMENT_DIRECTORY" ] || return 1
   [ -x "$REVIEW_PACKAGE" ] || return 1
@@ -67,6 +324,9 @@ t03_manifest_and_evidence_contracts_are_complete() {
 
   contains "$SKILL" 'Evidence-complete: yes' || return 1
   contains "$SKILL" 'REPOSITORY:' || return 1
+  contains "$SKILL" 'Head: <sha>' || return 1
+  contains "$SKILL" 'current `HEAD` to equal the named `Head`' || return 1
+  contains "$SKILL" 'each returned head to equal its manifest' || return 1
   contains "$SKILL" 'Tests: <commands and results for this repository>' || return 1
   contains "$SKILL" 'Repeat the repository block; keep integration and acceptance build-wide.' || return 1
   contains "$SKILL" '`Action: evidence-recovery` is implementer/fixer-only.' || return 1
@@ -102,18 +362,25 @@ t04_roles_are_runtime_contracts() {
   contains "$AGENTS/reviewer.md" 'CARRIED_VERDICTS:' || return 1
   contains "$AGENTS/reviewer.md" 'perform the one unrestricted whole-spec review' || return 1
   contains "$AGENTS/re-reviewer.md" 'only findings caused by the fix wave' || return 1
-  contains "$AGENTS/re-reviewer.md" 'Limit new findings to fix-caused defects or findings that invalidate a named prior' || return 1
+  contains "$AGENTS/re-reviewer.md" '`Evidence review: E<n>`' || return 1
+  contains "$AGENTS/re-reviewer.md" 'is valid in either mode' || return 1
+  contains "$AGENTS/re-reviewer.md" 'a new finding may invalidate a named prior' || return 1
+  contains "$AGENTS/re-reviewer.md" '<consecutive admissible findings or (none)>' || return 1
+  not_contains "$AGENTS/re-reviewer.md" '<consecutive fix-caused findings or (none)>' || return 1
   contains "$AGENTS/reviewer.md" 'Begin its text with `contract-blocking:' || return 1
+  contains "$AGENTS/reviewer.md" 'external-evidence: <dependency and verification procedure>' || return 1
 }
 
 t05_carried_state_is_closed() {
   contains "$SKILL" 'Phase <n>: review — carried' || return 1
   contains "$SKILL" 'Phase <n>: accepted — <satisfied scope> — carry <finding ids>' || return 1
   contains "$SKILL" 'Phase <n>: carried verdicts' || return 1
-  contains "$SKILL" '`not_addressed` remains open.' || return 1
+  contains "$SKILL" '`not_addressed` keeps it open.' || return 1
   contains "$SKILL" 'Completion rejects any carried id without one unique source line, reviewer verdict, or final owner.' || return 1
-  contains "$SKILL" 'For every review or re-review supplied carried ids' || return 1
-  contains "$SKILL" 'the latest verdict controls the open set' || return 1
+  contains "$SKILL" 'After every reviewer result supplied carried ids' || return 1
+  contains "$SKILL" 'After every fix-triggered re-review, append one `re-review <R> — verdicts` entry covering every supplied id' || return 1
+  contains "$SKILL" 'After every external-evidence review, do the same under `evidence review <E>`.' || return 1
+  contains "$SKILL" 'Verdicts in either form update any carried ids they contain.' || return 1
   contains "$SKILL" 'Anchor only findings first admitted by the current result under its `blocking`, `carried`, or `open` entry.' || return 1
   contains "$SKILL" 'Minor-only, including `not_addressed` carried ids: append `review — carried`' || return 1
   contains "$SKILL" '`not_addressed` carried ids join the wave through their existing source anchors' || return 1
@@ -133,7 +400,7 @@ t06_final_review_converges() {
   contains "$SKILL" 'parks all eligible round-1 Critical/Important findings' || return 1
   contains "$SKILL" 'names the exact requirement, acceptance criterion, integration, compatibility, or safety coverage claim' || return 1
   contains "$SKILL" 'Only the user may accept/defer Critical or Important risk' || return 1
-  contains "$SKILL" 'After ordinal round 2, every residual finding enters the user gate' || return 1
+  contains "$SKILL" 'After ordinal round 2, every residual non-external finding enters the user gate' || return 1
   contains "$SKILL" 'the controller cannot park findings' || return 1
   contains "$SKILL" 'Contract-blocking findings cannot be parked' || return 1
   contains "$SKILL" 'review — final findings — coverage:' || return 1
@@ -142,6 +409,11 @@ t06_final_review_converges() {
   contains "$SKILL" 'paired with cumulative repository ranges at every current HEAD' || return 1
   contains "$SKILL" 'restart with an unrestricted whole-spec review at the current heads' || return 1
   contains "$SKILL" "Use the manifest's evidence paths and ledger anchors as acceptance-evidence sources." || return 1
+  contains "$SKILL" 'Coverage never substitutes for the accepted entry' || return 1
+  contains "$SKILL" '`Evidence review: E<n>`' || return 1
+  contains "$SKILL" 'Evidence reviews never create, consume, or renumber fix-round authority.' || return 1
+  contains "$AGENTS/re-reviewer.md" 'valid in either mode' || return 1
+  contains "$SKILL" 'never retries the finish gate directly from an evidence reference' || return 1
   not_contains "$SKILL" 'coverage-index file' || return 1
   not_contains "$SKILL" 'parked by controller' || return 1
 }
@@ -161,6 +433,8 @@ t07_resume_handles_artifact_loss() {
   contains "$SKILL" '`Build: abandoned` → report the recorded terminal state and keep the implement directory.' || return 1
   contains "$SKILL" 'reachable only from another branch' || return 1
   contains "$SKILL" 'commit trailers alone do not establish acceptance' || return 1
+  contains "$SKILL" 'never asks the user to repeat them' || return 1
+  contains "$SKILL" 'never complete directly from the received reference' || return 1
 }
 
 t08_carried_rereview_verdict_closes_open_set() {
@@ -174,8 +448,8 @@ Phase 2: carried verdicts — F3 not_addressed
 Phase 2: review — blocking
 F4 | important | required behavior is incomplete
 Phase 2: fix round 1 — /tmp/repo aaa1111..bbb2222 — verified: pass
+Phase 2: re-review 1 — verdicts — F4 addressed; F3 addressed
 Phase 2: re-review 1 — clean
-Phase 2: carried verdicts — F3 addressed
 Phase 2: accepted — R2
 EOF
 
@@ -183,7 +457,7 @@ EOF
   open=$(awk '
     /accepted .* carry .*F3/ { open = 1 }
     /carried verdicts/ && /F3 not_addressed(;|$)/ { open = 1 }
-    /carried verdicts/ && /F3 (addressed|invalid)(;|$)/ { open = 0 }
+    /(carried verdicts|re-review .* verdicts)/ && /F3 (addressed|invalid)(;|$)/ { open = 0 }
     END { print open + 0 }
   ' "$ledger")
   [ "$open" -eq 0 ]
@@ -290,6 +564,216 @@ t13_readme_describes_closure_and_recovery() {
   contains "$README" 'agent-owned evidence' || return 1
 }
 
+t14_recovery_manifest_pins_and_checks_heads() {
+  repo="$TMPROOT/recovery-head-repo"
+  manifest="$TMPROOT/recovery-manifest.md"
+  evidence="$TMPROOT/recovery-evidence.md"
+  missing_head="$TMPROOT/recovery-missing-head.md"
+  wrong_evidence="$TMPROOT/recovery-wrong-evidence.md"
+  mkdir -p "$repo"
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.name test
+  git -C "$repo" config user.email test@example.com
+  printf 'base\n' >"$repo/work.txt"
+  git -C "$repo" add work.txt
+  git -C "$repo" commit -qm base
+  head=$(git -C "$repo" rev-parse HEAD)
+
+  cat >"$manifest" <<EOF
+# Dispatch
+Manifest version: 1
+Role: implementer
+Mode: final
+Action: evidence-recovery
+Phase: P2
+Generation: D3
+REPOSITORY:
+Path: $repo
+Branch: main
+Base: $head
+Head: $head
+END_REPOSITORY
+Manifest-complete: yes
+EOF
+  cat >"$evidence" <<EOF
+# Evidence
+REPOSITORY:
+Path: $repo
+Branch: main
+Base: $head
+Head: $head
+Tests: suite passed
+END_REPOSITORY
+Integration: n/a
+Acceptance: A1 passed
+Evidence-complete: yes
+EOF
+
+  recovery_manifest_valid "$manifest" || return 1
+  recovery_evidence_matches_manifest "$manifest" "$evidence" || return 1
+
+  sed '/^Head: /d' "$manifest" >"$missing_head"
+  if recovery_manifest_valid "$missing_head"; then return 1; fi
+
+  sed 's/^Head: .*/Head: 0000000000000000000000000000000000000000/' "$evidence" >"$wrong_evidence"
+  if recovery_evidence_matches_manifest "$manifest" "$wrong_evidence"; then return 1; fi
+
+  printf 'drift\n' >>"$repo/work.txt"
+  git -C "$repo" add work.txt
+  git -C "$repo" commit -qm drift
+  if recovery_manifest_valid "$manifest"; then return 1; fi
+}
+
+t15_intermediate_user_gate_transitions_once() {
+  ledger="$TMPROOT/intermediate-user-gate-ledger.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 1: scope — intermediate — brief: /tmp/P1.md
+Phase 1: review — blocking
+F2 | important | compatibility risk remains
+F3 | minor | simplify the fallback
+Phase 1: re-review 1 — verdicts — F2 not_addressed; F3 not_addressed
+Phase 1: re-review 1 — open: F2 F3
+EOF
+
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'user-gate' ] || return 1
+  printf '%s\n' 'Phase 1: review: parked — F2 — Ruling: accepted by user — known compatibility risk' >>"$ledger"
+  transition=$(intermediate_post_gate_transition "$ledger" 1 R1)
+  [ "$transition" = 'append:Phase 1: accepted — R1 — carry F3' ] || return 1
+  printf '%s\n' "${transition#append:}" >>"$ledger"
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'choose-phase' ]
+}
+
+t16_final_coverage_requires_explicit_acceptance() {
+  ledger="$TMPROOT/final-accepted-ledger.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 4: scope — final — whole remaining spec
+Phase 4: final review repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 4: review — final clean — coverage: R1; R2; A1
+EOF
+
+  [ "$(final_transition "$ledger" 4 bbb2222)" = 'append-final-accepted' ] || return 1
+  printf '%s\n' 'Phase 4: accepted — R1; R2; A1' >>"$ledger"
+  [ "$(final_transition "$ledger" 4 bbb2222)" = 'complete' ]
+}
+
+t17_final_evidence_review_checks_every_pending_id() {
+  ledger="$TMPROOT/external-evidence-ledger.md"
+  not_addressed_ledger="$TMPROOT/external-evidence-not-addressed.md"
+  open_coverage_ledger="$TMPROOT/external-evidence-open-coverage.md"
+  incomplete_verified_ledger="$TMPROOT/external-evidence-incomplete-verified.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 2: scope — final — whole remaining spec
+Phase 2: final review repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 2: review — final findings — coverage: R1; A1; A2
+F7 | important | contract-blocking: A1 — external-evidence: production approval with the recorded procedure
+F8 | important | contract-blocking: A2 — external-evidence: audit approval with the recorded procedure
+Phase 2: acceptance pending — findings: F7 F8 — acceptance: A1 A2 — production and audit approval
+EOF
+
+  [ "$(final_transition "$ledger" 2 bbb2222)" = 'await-evidence' ] || return 1
+  printf '%s\n' 'Phase 2: acceptance evidence received — findings: F7 F8 — acceptance: A1 A2 — /tmp/approvals.txt' >>"$ledger"
+  [ "$(final_transition "$ledger" 2 bbb2222)" = 'evidence-review' ] || return 1
+  [ "$(final_transition "$ledger" 2 ccc3333)" = 'full-final-review' ] || return 1
+
+  cp "$ledger" "$not_addressed_ledger"
+  cat >>"$not_addressed_ledger" <<'EOF'
+Phase 2: evidence review 1 repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 2: evidence review 1 — verdicts — F7 addressed; F8 not_addressed
+Phase 2: evidence review 1 — clean — coverage: R1; A1; A2
+EOF
+  [ "$(final_transition "$not_addressed_ledger" 2 bbb2222)" = 'await-evidence' ] || return 1
+
+  cp "$ledger" "$open_coverage_ledger"
+  cat >>"$open_coverage_ledger" <<'EOF'
+Phase 2: evidence review 1 repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 2: evidence review 1 — verdicts — F7 addressed; F8 invalid
+F9 | minor | new evidence exposes a stale diagnostic
+Phase 2: evidence review 1 — open: F9 — coverage: R1; A1; A2
+EOF
+  [ "$(final_transition "$open_coverage_ledger" 2 bbb2222)" = 'final-routing' ] || return 1
+
+  cat >>"$ledger" <<'EOF'
+Phase 2: evidence review 1 repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 2: evidence review 1 — verdicts — F7 addressed; F8 invalid
+Phase 2: evidence review 1 — clean — coverage: R1; A1; A2
+EOF
+  [ "$(final_transition "$ledger" 2 bbb2222)" = 'append-acceptance-verified' ] || return 1
+  cp "$ledger" "$incomplete_verified_ledger"
+  printf '%s\n' 'Phase 2: acceptance verified — findings: F7 — acceptance: A1 — Phase 2 evidence review 1' >>"$incomplete_verified_ledger"
+  [ "$(final_transition "$incomplete_verified_ledger" 2 bbb2222)" = 'append-acceptance-verified' ] || return 1
+  printf '%s\n' 'Phase 2: acceptance verified — findings: F7 F8 — acceptance: A1 A2 — Phase 2 evidence review 1' >>"$ledger"
+  [ "$(final_transition "$ledger" 2 bbb2222)" = 'append-final-accepted' ] || return 1
+  printf '%s\n' 'Phase 2: accepted — R1; A1; A2' >>"$ledger"
+  [ "$(final_transition "$ledger" 2 bbb2222)" = 'complete' ]
+}
+
+t18_intermediate_external_evidence_reaches_acceptance() {
+  ledger="$TMPROOT/intermediate-external-evidence.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 1: scope — intermediate — brief: /tmp/P1.md
+Phase 1: review — blocking
+F5 | important | contract-blocking: A1 — external-evidence: partner approval with the recorded procedure
+Phase 1: acceptance pending — findings: F5 — acceptance: A1 — partner approval
+EOF
+
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'await-evidence' ] || return 1
+  printf '%s\n' 'Phase 1: acceptance evidence received — findings: F5 — acceptance: A1 — /tmp/partner-approval.txt' >>"$ledger"
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'evidence-review' ] || return 1
+  cat >>"$ledger" <<'EOF'
+Phase 1: evidence review 1 repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 1: evidence review 1 — verdicts — F5 addressed
+Phase 1: evidence review 1 — clean
+EOF
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'append-acceptance-verified' ] || return 1
+  printf '%s\n' 'Phase 1: acceptance verified — findings: F5 — acceptance: A1 — Phase 1 evidence review 1' >>"$ledger"
+  transition=$(intermediate_post_gate_transition "$ledger" 1 R1)
+  [ "$transition" = 'append:Phase 1: accepted — R1' ] || return 1
+  printf '%s\n' "${transition#append:}" >>"$ledger"
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'choose-phase' ]
+}
+
+t19_evidence_review_does_not_consume_fix_rounds() {
+  ledger="$TMPROOT/evidence-review-numbering.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+F7 | important | contract-blocking: A1 — external-evidence: production approval
+F9 | minor | evidence exposed a stale diagnostic
+Phase 2: evidence review 1 repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 2: evidence review 1 — verdicts — F7 addressed
+Phase 2: evidence review 1 — open: F9 — coverage: R1; A1
+EOF
+  [ "$(next_fix_round "$ledger" 2)" -eq 1 ] || return 1
+  printf '%s\n' 'Phase 2: fix round 1 repositories — /tmp/repo [main@bbb2222]' >>"$ledger"
+  printf '%s\n' 'Phase 2: evidence review 2 repositories — /tmp/repo [aaa1111..bbb2222]' >>"$ledger"
+  printf '%s\n' 'Phase 2: evidence review 2 — verdicts — F7 addressed' >>"$ledger"
+  printf '%s\n' 'Phase 2: evidence review 2 — clean — coverage: R1; A1' >>"$ledger"
+  [ "$(next_fix_round "$ledger" 2)" -eq 2 ]
+}
+
+t20_intermediate_evidence_review_routes_new_finding() {
+  ledger="$TMPROOT/intermediate-evidence-new-finding.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 1: scope — intermediate — brief: /tmp/P1.md
+Phase 1: review — blocking
+F5 | important | contract-blocking: A1 — external-evidence: partner approval with the recorded procedure
+Phase 1: acceptance pending — findings: F5 — acceptance: A1 — partner approval
+Phase 1: acceptance evidence received — findings: F5 — acceptance: A1 — /tmp/partner-approval.txt
+Phase 1: evidence review 1 repositories — /tmp/repo [aaa1111..bbb2222]
+Phase 1: evidence review 1 — verdicts — F5 addressed
+F6 | important | contract-blocking: landing safety — received partner evidence shows the rollback path is unsafe
+Phase 1: evidence review 1 — open: F6
+EOF
+
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'append-acceptance-verified' ] || return 1
+  printf '%s\n' 'Phase 1: acceptance verified — findings: F5 — acceptance: A1 — Phase 1 evidence review 1' >>"$ledger"
+  [ "$(intermediate_post_gate_transition "$ledger" 1 R1)" = 'fix-round-1' ]
+}
+
 TESTS='t01_layout_stays_lean
 t02_skill_routes_compact_dispatch
 t03_manifest_and_evidence_contracts_are_complete
@@ -302,7 +786,14 @@ t09_final_coverage_is_paired_with_current_heads
 t10_implement_directory_supports_non_git_workspace
 t11_review_package_is_temporary_and_multi_repo
 t12_helpers_reject_bad_input
-t13_readme_describes_closure_and_recovery'
+t13_readme_describes_closure_and_recovery
+t14_recovery_manifest_pins_and_checks_heads
+t15_intermediate_user_gate_transitions_once
+t16_final_coverage_requires_explicit_acceptance
+t17_final_evidence_review_checks_every_pending_id
+t18_intermediate_external_evidence_reaches_acceptance
+t19_evidence_review_does_not_consume_fix_rounds
+t20_intermediate_evidence_review_routes_new_finding'
 
 for test_name in $TESTS; do
   if (set -e; "$test_name"); then

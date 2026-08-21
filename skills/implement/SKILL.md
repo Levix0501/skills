@@ -112,21 +112,31 @@ Phase <n>: fix round <R> repositories — <repo-a> [<branch>@<base7>]; ...
 Phase <n>: fix round <R> concern — <verbatim fixer concern>
 Phase <n>: fix round <R> — <repo-a> <base7>..<head7>; ... — verified: <summary>
 Phase <n>: re-review <R> repositories — <repo [first-base7..head7]>; ...
+Phase <n>: re-review <R> — verdicts — <F<n> addressed|invalid|not_addressed; ...>
 Phase <n>: re-review <R> — open: <finding ids>
 Phase <n>: re-review <R> — clean
 Phase <n>: re-review <R> — open: <finding ids> — coverage: <final coverage>
 Phase <n>: re-review <R> — clean — coverage: <final coverage>
+Phase <n>: evidence review <E> repositories — <repo [base7..head7]>; ...
+Phase <n>: evidence review <E> — verdicts — <F<n> addressed|invalid|not_addressed; ...>
+Phase <n>: evidence review <E> — open: <finding ids>
+Phase <n>: evidence review <E> — clean
+Phase <n>: evidence review <E> — open: <finding ids> — coverage: <final coverage>
+Phase <n>: evidence review <E> — clean — coverage: <final coverage>
 Phase <n>: review: parked — F<n> — <authority, reason, and risk>
-Phase <n>: acceptance pending — <acceptance ids or names> — <external dependency>
-Phase <n>: acceptance verified — <acceptance ids or names> — <evidence>
+Phase <n>: acceptance pending — findings: <finding ids> — acceptance: <acceptance ids or names> — <external dependency>
+Phase <n>: acceptance evidence received — findings: <finding ids> — acceptance: <acceptance ids or names> — <evidence reference>
+Phase <n>: acceptance verified — findings: <finding ids> — acceptance: <acceptance ids or names> — <evidence review entry>
 Build: abandoned — <reason>
 ```
 
 ### Carried open set
 
-Each finding has one complete ledger line under its first review/re-review anchor. Later entries use its stable id.
+Each finding has one complete ledger line under its first review, re-review, or evidence-review anchor. Later entries use its stable id.
 
-Compute open carried findings by adding ids in accepted `carry` suffixes, then removing only ids later marked `addressed`, `invalid`, or validly parked. `not_addressed` remains open. Completion rejects any carried id without one unique source line, reviewer verdict, or final owner.
+Compute open carried findings by adding ids in accepted `carry` suffixes, then applying later `carried verdicts`, re-review `verdicts`, evidence-review `verdicts`, and valid parking. `addressed` or `invalid` closes an id, valid parking removes its owner, and `not_addressed` keeps it open. Completion rejects any carried id without one unique source line, reviewer verdict, or final owner.
+
+Compute open external acceptance dependencies per anchored finding id. `acceptance pending` opens the dependency and `acceptance evidence received` keeps it open. `acceptance verified` closes it only when it names a later evidence review where every pending id is `addressed` or `invalid` at unchanged phase heads. Intermediate mode then routes any admissible new findings before acceptance; final mode additionally requires clean whole-spec coverage paired to current heads. Earlier append-only pending entries are then historical, not open.
 
 ## 4. Choose the current phase
 
@@ -177,6 +187,7 @@ P1-implement-D1.md
 P1-review-D1.md
 P1-fix-R1-D1.md
 P1-rereview-R1-D1.md
+P1-evidence-review-E1-D1.md
 ```
 
 Every manifest ends with `Manifest-complete: yes` and contains:
@@ -201,12 +212,27 @@ Required role fields:
 
 | Role | Additional fields |
 |---|---|
-| Implementer | branch and phase base per repository; incoming carried ids grouped by ledger source anchor; evidence output path |
+| Implementer | repository blocks with authorized branch, phase `Base`, and dispatch/target `Head`; incoming carried ids grouped by ledger source anchor; evidence output path |
 | Reviewer | reviewed ranges; implementation/acceptance evidence sources; temporary package path plus regeneration ranges; carried ids grouped by source anchor; first new finding id |
-| Fixer | authorized branch and fix base per repository; supplied finding ids grouped by source anchor; reviewed package path/ranges; acceptance evidence sources; evidence output path |
-| Re-reviewer | supplied ids grouped by source anchor; fixer/acceptance evidence sources; fix ranges; package path/regeneration ranges; first new id; new-finding admission rule |
+| Fixer | repository blocks with authorized branch, fix `Base`, and dispatch/target `Head`; supplied finding ids grouped by source anchor; reviewed package path/ranges; acceptance evidence sources; evidence output path |
+| Re-reviewer | trigger (`fix` or `external-evidence`); `Re-review: R<n>` for fix or `Evidence review: E<n>` for external evidence; supplied ids grouped by source anchor; fixer/acceptance evidence sources; reviewed ranges; fix ranges when triggered by a fix; package path/regeneration ranges; first new id; new-finding admission rule |
+
+Every implementer and fixer manifest repeats this exact repository block:
+
+```text
+REPOSITORY:
+Path: <canonical path>
+Branch: <name>
+Base: <sha>
+Head: <sha>
+END_REPOSITORY
+```
+
+For `Action: execute`, `Head` is the checked-out dispatch head and may advance through the authorized work. For `Action: evidence-recovery`, `Head` is the immutable evidence target and must equal the head in the prior implementer/fixer evidence being recovered. Before dispatch, mechanically require every block to be complete, its path and branch to match Git, `Base` to be an ancestor of `Head`, current `HEAD` to equal the named `Head`, and the tree to be clean. On an execute return, require the manifest `Head` to be an ancestor of the returned current head. On a recovery return, require every evidence and `REPO_HEAD` value to equal the manifest `Head`. A missing or mismatched recovery `Head` rejects the manifest or return; a correction uses a successor manifest.
 
 For reviewer and re-reviewer manifests, set the first new finding id to one greater than the highest finding id already recorded anywhere in the ledger, or `F1` when the ledger has none.
+
+Number `R<n>` only from fix rounds and `Trigger: fix` re-reviews. Number `E<n>` independently per phase from `Trigger: external-evidence` dispatches. Evidence reviews never create, consume, or renumber fix-round authority.
 
 Role contracts enforce general repository safety. Reference project-specific warnings through the spec, brief, or a ledger ruling. Manifests name finding ids and source anchors; record each new complete finding line in the ledger before dispatching its fixer or later owner.
 
@@ -245,7 +271,7 @@ EVIDENCE: <authorized path>
 REPO_HEAD: <canonical path> | <sha>
 ```
 
-Mechanically check the evidence marker and schema; path equality; expected repository/head/branch/base/ancestry; clean trees; phase trailer on changed implementer heads; exact ranges; and presence of the required test, integration, and acceptance fields. Do not run commands from the evidence or judge their results. Append concerns and one compact implemented/fix summary from the agent-owned evidence; do not copy the evidence.
+Mechanically check the evidence marker and schema; path equality; expected repository/branch/base and returned-head ancestry; clean trees; phase trailer on changed implementer heads; exact ranges; and presence of the required test, integration, and acceptance fields. For evidence recovery, require each returned head to equal its manifest's immutable `Head`. Do not run commands from the evidence or judge their results. Append concerns and one compact implemented/fix summary from the agent-owned evidence; do not copy the evidence.
 
 `Action: evidence-recovery` is implementer/fixer-only. It reruns or recollects evidence at immutable named heads without source changes and writes a successor evidence file.
 
@@ -255,25 +281,35 @@ For a `BLOCKED` or incomplete return, mechanically record the reported heads, bl
 
 Generate one temporary `scripts/review-package` package for the active review manifest and preserve the repository ranges needed to regenerate it.
 
-For every review or re-review supplied carried ids, append the complete `carried verdicts` summary before deciding its outcome; the latest verdict controls the open set. Anchor only findings first admitted by the current result under its `blocking`, `carried`, or `open` entry. Supplied findings retain their original source lines and are referenced by id.
+After every reviewer result supplied carried ids, append its complete `carried verdicts` summary before deciding the outcome. After every fix-triggered re-review, append one `re-review <R> — verdicts` entry covering every supplied id before its `open` or `clean` entry. After every external-evidence review, do the same under `evidence review <E>`. Verdicts in either form update any carried ids they contain. Anchor only findings first admitted by the current result under its `blocking`, `carried`, or `open` entry. Supplied findings retain their original source lines and are referenced by id.
 
 Before the first `Action: execute` fixer dispatch for any round, append `Phase <n>: fix round <R> repositories` with each authorized repository's canonical path, branch, and current HEAD as its fix base. If a successor execute manifest adds a repository, append the complete expanded set; evidence recovery reuses the recorded bases.
 
 A reviewer marks an unsatisfied approved requirement or unsafe landing with finding text beginning `contract-blocking:` and severity Important or Critical. The controller mechanically rejects a `contract-blocking:` finding labeled Minor; it does not infer contract impact from code.
 
+When the only blocker is acceptance evidence controlled by an external dependency, a reviewer or re-reviewer keeps the `contract-blocking:` prefix and includes `external-evidence: <dependency and verification procedure>` in the finding text. The controller routes only that explicit marker to `acceptance pending`; it does not infer whether evidence is external.
+
+### External acceptance evidence
+
+Anchor every newly admitted `external-evidence:` finding under intermediate `blocking` or final `final findings`, append `acceptance pending`, and exclude its id from fixer waves. Anchor and route the result's remaining findings normally, but neither mode may append `accepted` while an external dependency remains open.
+
+When evidence arrives, append `acceptance evidence received` and create the next immutable re-reviewer manifest with `Trigger: external-evidence` and the next independent `Evidence review: E<n>`. Supply the pending ids at their original anchors, the received evidence, and a regenerated package over unchanged reviewed heads: exact phase ranges for intermediate mode and cumulative ranges for final mode. If an intermediate head moved, repeat the full phase review at current heads; if a final head moved, restart the unrestricted whole-spec review.
+
+Record the result under `evidence review <E> repositories`, `verdicts`, then `open` or `clean`; final mode also records whole-spec coverage. In intermediate mode, append `acceptance verified` when every pending id is `addressed` or `invalid`, then route admissible new findings before applying accepted/carry. In final mode, also require the evidence-review coverage to be clean before appending verified. A `not_addressed` pending id waits for later evidence without entering a fixer wave.
+
 ### Intermediate phase
 
 Dispatch the reviewer over exact phase ranges. It returns a verdict for every incoming carried id and a finding block.
 
-- Clean, meaning no new findings and every carried id is `addressed` or `invalid`: accept the phase.
-- Minor-only, including `not_addressed` carried ids: append `review — carried`, the new complete lines, and `accepted ... — carry <open ids>`; dispatch no fixer.
-- Any Critical/Important: append `review — blocking` followed by the wave's new complete lines, including new Minor findings; `not_addressed` carried ids join the wave through their existing source anchors. Automatically authorize fix round 1.
+- Clean, meaning no new findings and every carried id is `addressed` or `invalid`: append `accepted` for the frozen scope when no external dependency is open.
+- Minor-only, including `not_addressed` carried ids: append `review — carried` and the new complete lines; when no external dependency is open, append `accepted ... — carry <open ids>` and dispatch no fixer.
+- Any non-external Critical/Important: append `review — blocking` followed by the wave's new complete lines, including new Minor findings; `not_addressed` carried ids join the wave through their existing source anchors. Automatically authorize fix round 1. Pending external-evidence ids remain outside the fixer wave.
 
-The fixer receives all ids by ledger anchor, never copied lines. After a verified fix, dispatch one fresh re-reviewer over the fix ranges. It gives a verdict for every supplied id and may admit only fix-caused new findings.
+The fixer receives all fixer-wave ids by ledger anchor, never copied lines. After a verified fix, dispatch one fresh re-reviewer over the fix ranges. It gives a verdict for every supplied id and may admit only fix-caused new findings.
 
-- Any original/new Critical or Important remains blocking and enters the user gate.
-- With no Critical/Important, every original `not_addressed` or new Minor is carried and the phase is accepted.
-- If all supplied findings are addressed/invalid and no new finding exists, accept cleanly.
+- Any original/new non-external Critical or Important remains blocking and enters the user gate; route an `external-evidence:` finding through the pending path above.
+- With no non-external Critical/Important, every original `not_addressed` or new Minor is carried; append `accepted ... — carry <open ids>` only when no external dependency is open.
+- If all supplied findings are addressed/invalid, no new finding exists, and no external dependency is open, append `accepted` for the frozen scope.
 
 Only fix round 1 is automatic for an intermediate phase.
 
@@ -285,21 +321,25 @@ Use the manifest's evidence paths and ledger anchors as acceptance-evidence sour
 
 A final `not_addressed` carried id joins the final fixer wave through its original source anchor.
 
-Any final finding, including Minor or `not_addressed` carried work, automatically authorizes final fix round 1. The final fixer may change any participating repository required by the complete wave.
+Any final finding, including Minor or `not_addressed` carried work, automatically authorizes final fix round 1, except a finding explicitly marked `external-evidence:`, which waits without dispatching a source fixer or consuming fix-round authority. The final fixer may change any participating repository required by the complete wave.
 
-Before each final re-review, mechanically check the latest heads, append `Phase <n>: re-review <R> repositories` with every cumulative first-build-base-to-current-HEAD range, and regenerate the cumulative package. The re-reviewer re-derives the spec checklist, gives every supplied verdict, reconfirms whole-spec coverage at those heads, and admits a new finding only when:
+Before each `Trigger: fix` final re-review, mechanically check the latest heads, append `Phase <n>: re-review <R> repositories` with every cumulative first-build-base-to-current-HEAD range, and regenerate the cumulative package. The re-reviewer re-derives the spec checklist, gives every supplied verdict, reconfirms whole-spec coverage at those heads, and admits a new finding only when:
 
 - the fix caused it; or
 - it names the exact requirement, acceptance criterion, integration, compatibility, or safety coverage claim it invalidates.
 
 Final round authority:
 
-1. Initial final findings authorize round 1 for all severities.
+1. Initial non-external final findings authorize round 1 for all severities.
 2. A Minor-only result after re-review 1 authorizes ordinal round 2 once.
 3. Any user-authorized round 2 consumes that allowance; no later round is automatic.
-4. Critical/Important after re-review goes to the user gate.
+4. Non-external Critical/Important after re-review goes to the user gate.
 5. If the user parks all eligible round-1 Critical/Important findings and only Minor findings remain, automatic ordinal round 2 is still available.
-6. After ordinal round 2, every residual finding enters the user gate; no further round is automatic and the controller cannot park findings.
+6. After ordinal round 2, every residual non-external finding enters the user gate; no further round is automatic and the controller cannot park findings. Explicit external-evidence ids continue to wait through `E<n>`.
+
+Compute this authority only from fix-round entries and `Trigger: fix` re-reviews. An evidence review never counts as `R1` or `R2`; findings it admits follow the authority state that existed before `E<n>`.
+
+A final phase is accepted only after the latest whole-spec final review, fix-triggered re-review, or evidence-review coverage is paired with every current head, every finding from that result is addressed, invalid, or validly parked, and no acceptance evidence is pending. Then append `Phase <n>: accepted — <frozen final scope>` before applying the finish gate. Coverage never substitutes for the accepted entry.
 
 ## 7. User gate
 
@@ -314,18 +354,20 @@ Only the user may accept/defer Critical or Important risk, park a residual findi
 
 Present the complete open wave. A user-authorized round handles every open severity. Contract-blocking findings cannot be parked; fix them, stop, or supersede the spec. The user may park other residual risk with a recorded reason and residual risk while preserving the accepted contract and safe landing.
 
+After each decision, mechanically recompute the wave from ledger ids and recorded verdicts. When an intermediate wave has no open, unparked Critical/Important finding, append `accepted` for the frozen scope with a `carry` suffix naming every remaining open, unparked Minor, or without the suffix when none remain, then return to phase selection. When a final wave has no open, unparked finding and satisfies the final acceptance conditions above, append its `accepted` entry and continue to the finish gate. Recovery performs these missing accepted transitions directly from the recorded decisions and never asks the user to repeat them.
+
 ## 8. Finish
 
 Finish on coverage, not predicted phase count. Apply this as a ledger-and-Git gate; reviewer verdicts establish semantic coverage and the controller does not reassess them. Confirm:
 
-- every requirement is covered by accepted scope and review evidence;
-- the latest final review/re-review coverage entry covers the whole spec and is paired with cumulative repository ranges at every current HEAD;
+- every requirement is covered by explicit accepted scope and review evidence, including an accepted entry for the final phase;
+- the latest final review, fix-triggered re-review, or evidence-review coverage entry covers the whole spec and is paired with cumulative repository ranges at every current HEAD;
 - every carried id has one source, a verdict, and no open owner;
 - every unparked finding is closed and every parked finding has the required authority/evidence;
 - every tree is clean and every current range is reviewed; and
 - no acceptance evidence remains pending.
 
-If external acceptance evidence is pending, record the dependency and verification procedure and stop without completing. When the user or an authorized role supplies the evidence, mechanically record its reference and repeat the finish gate; the controller does not perform the acceptance check.
+If external acceptance evidence is pending, record its anchored finding ids, acceptance ids or names, dependency, and verification procedure, then stop without completing. When evidence arrives, follow the evidence-review path in section 6; the controller records the role's verdicts and coverage without performing the acceptance check itself and never retries the finish gate directly from an evidence reference.
 
 If a current repository HEAD is beyond the ranges paired with the latest final coverage entry, invalidate that final-review sequence. Record the new cumulative ranges, regenerate the package, and restart with an unrestricted whole-spec review at the current heads.
 
@@ -340,12 +382,16 @@ Read the spec and ledger, verify its first line names the spec, then verify ever
 - Missing, malformed, or schema-invalid evidence, including evidence without `Evidence-complete: yes` → treat it as lost. At unchanged verified heads, dispatch `evidence-recovery`; never substitute the ledger summary. If heads moved, use normal repository recovery.
 - Scope exists without complete implementation → inspect status, log, and phase commits only to establish Git facts, then dispatch an implementer to recover or finish the scope.
 - Implemented line without review result → repeat the appropriate phase or whole-spec review.
-- Complete `review — carried` without accepted line, with unchanged reviewed heads/scope → append accepted directly with anchored ids; do not rerun review.
-- Blocking review without fix → run its authorized round 1. User authorization without a later fix → run that wave.
+- Complete `review — carried` without accepted line, with unchanged reviewed heads/scope and no pending external evidence → append accepted directly with anchored ids; do not rerun review.
+- Blocking review with non-external actionable ids but no fix → run its authorized round 1 excluding pending external ids. A wave containing only pending external ids waits for evidence. User authorization without a later fix → run that wave.
 - Completed fix without re-review → run the matching intermediate or final re-review.
-- Open Critical/Important after re-review → user gate. Final round-1 Minor-only → automatic ordinal round 2. Any later residual finding → user gate.
+- Open non-external Critical/Important after re-review → user gate; route explicit external-evidence ids to pending. Final round-1 Minor-only → automatic ordinal round 2. Any later residual finding → user gate.
+- An intermediate review/re-review or user-gated wave ready for acceptance but missing its accepted entry and with no pending external evidence → append `accepted`, including every remaining Minor in `carry`, then choose from actual heads without repeating review or the user gate.
 - Intermediate accepted with remaining work → choose again from actual heads. No requirements but open carried ids → final closure phase.
-- Final clean/validly parked and all finish checks pass → complete.
+- Final coverage at current heads with every finding closed/validly parked and no pending evidence, but no final accepted entry → append it before evaluating finish.
+- `acceptance evidence received` without a later evidence review at the same heads → run the next `E<n>`; never complete directly from the received reference.
+- An intermediate evidence review with every pending id `addressed`/`invalid`, or a clean final evidence review with those verdicts, but no matching `acceptance verified` entry → append it, then route any open findings before the mode's accepted transition.
+- Final accepted with all finish checks passing → complete.
 - `Build: complete` with a leftover implement directory → collect the recorded result, delete only that spec's directory, and do not repeat completion work.
 - `Build: abandoned` → report the recorded terminal state and keep the implement directory.
 

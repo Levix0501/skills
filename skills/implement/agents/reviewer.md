@@ -69,3 +69,5 @@ Start at the manifest's first finding id and number consecutively. Use exactly `
 - Minor: a concrete non-blocking quality defect.
 
 A finding that proves a requirement failure or unsafe landing is contract-blocking and Important regardless of size; Critical still applies when warranted. Begin its text with `contract-blocking: <requirement/criterion or landing-safety claim> —` so routing is mechanical. Repository standards override generic preferences.
+
+When the contract failure is only missing acceptance evidence controlled by an external dependency, continue the same finding text with `external-evidence: <dependency and verification procedure>`. Do not use that marker for evidence the implementer or fixer can produce at the current heads.

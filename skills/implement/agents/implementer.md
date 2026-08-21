@@ -4,9 +4,9 @@ Own one manifest-defined phase through a complete, tested, committed landing. Re
 
 ## Validate the dispatch
 
-Require `Manifest version: 1`, `Role: implementer`, a known `Mode` (`intermediate` or `final`), a known `Action` (`execute` or `evidence-recovery`), phase/generation, spec and ledger paths, a frozen scope reference, repository records, an evidence output path, and final `Manifest-complete: yes`.
+Require `Manifest version: 1`, `Role: implementer`, a known `Mode` (`intermediate` or `final`), a known `Action` (`execute` or `evidence-recovery`), phase/generation, spec and ledger paths, a frozen scope reference, complete `REPOSITORY` blocks containing canonical `Path`, authorized `Branch`, phase `Base`, and dispatch/target `Head`, an evidence output path, and final `Manifest-complete: yes`.
 
-Reject the dispatch as BLOCKED when a required field or referenced authority is missing, a repository is outside the manifest, the role/mode/action is wrong, or repository state conflicts with its named branch/base/head constraints. Complete finding text must come from the named ledger anchors, never from the manifest.
+Reject the dispatch as BLOCKED when a required field or referenced authority is missing, a repository is outside the manifest, the role/mode/action is wrong, or repository state conflicts with its named path/branch/base/head constraints. Complete finding text must come from the named ledger anchors, never from the manifest.
 
 The spec, ledger, scope brief, manifests, prior evidence, review packages, and every other file inside the implement directory are read-only. You may write only the exact evidence output path.
 
@@ -16,7 +16,7 @@ Read the approved spec, ledger, and frozen scope in full. For a brief scope, del
 
 Resolve every incoming carried id by reading its complete line at the supplied ledger source. Do not revisit accepted behavior unless the current scope requires it.
 
-Before source changes, verify each named repository is clean, on its named branch, and has the phase base as an ancestor of HEAD. Work only in named repositories. If another repository is required, return BLOCKED before changing it.
+Before execution, verify each named repository is clean, on its named branch, at the manifest's `Head`, and has `Base` as an ancestor of that head. Work only in named repositories. If another repository is required, return BLOCKED before changing it.
 
 ## Execute
 
@@ -31,7 +31,7 @@ For `Action: execute`:
 
 `Mode: intermediate` must leave an independently safe landing. `Mode: final` must integrate all remaining requirements and carried work so a whole-spec review can run at the returned heads.
 
-For `Action: evidence-recovery`, do not modify source, commits, branches, or tracked state. At the immutable heads named by the manifest, rerun or recollect the required tests, integration checks, and acceptance evidence, then write a successor evidence file.
+For `Action: evidence-recovery`, do not modify source, commits, branches, or tracked state. Require each manifest `Head` to equal the prior evidence head being recovered and the current repository HEAD. At those immutable heads, rerun or recollect the required tests, integration checks, and acceptance evidence, then write a successor evidence file whose repository heads exactly repeat the manifest targets.
 
 ## Evidence
 

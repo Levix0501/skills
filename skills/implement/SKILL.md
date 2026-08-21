@@ -137,6 +137,8 @@ Take an intermediate boundary only when it materially reduces risk or cognitive 
 
 An intermediate landing must be independently safe to merge or deploy, preserve compatibility unless the spec changes it, contain no temporary half-migration, and provide observable acceptance evidence. Choose the largest coherent stable increment before the worthwhile boundary.
 
+Split at valuable risk or cognition seams, not at technical layers or repository boundaries. One observable behavior spanning repositories is normally one phase; do not assume a particular repository layout. Absorb low-risk requirements that share implementation context, risk, or verification, and merge candidates that share tests, an invariant, or a transactional landing unless doing so would weaken landing safety or reliable-run headroom.
+
 The phase is final when its frozen scope owns every remaining requirement and open carried finding and no known later stable landing is required. A one-phase build has final P1. If requirements are already satisfied but carried findings remain, choose a final closure phase.
 
 For an intermediate phase, write and freeze only the current brief:
@@ -165,7 +167,7 @@ If a carried finding lives in a repository otherwise outside the next phase, inc
 
 ## 5. Dispatch and implementation
 
-Record every phase repository's canonical path, branch, and current HEAD as its phase base before dispatch.
+Before the first implementer dispatch, append `Phase <n>: repositories` with every phase repository's canonical path, branch, and current HEAD as its phase base. Before a successor implementer dispatch that adds a repository, append a new repositories entry with the complete expanded set and the new repository's phase base.
 
 ### Immutable manifests
 
@@ -204,6 +206,8 @@ Required role fields:
 | Reviewer | reviewed ranges; implementation/acceptance evidence sources; temporary package path plus regeneration ranges; carried ids grouped by source anchor; first new finding id |
 | Fixer | authorized branch and fix base per repository; supplied finding ids grouped by source anchor; reviewed package path/ranges; acceptance evidence sources; evidence output path |
 | Re-reviewer | supplied ids grouped by source anchor; fixer/acceptance evidence sources; fix ranges; package path/regeneration ranges; first new id; new-finding admission rule |
+
+For reviewer and re-reviewer manifests, set the first new finding id to one greater than the highest finding id already recorded anywhere in the ledger, or `F1` when the ledger has none.
 
 General repository safety belongs in role contracts. Put project-specific warnings in the spec, brief, or a ledger ruling and reference that source. Complete finding lines are forbidden in manifests; record the review return under a ledger anchor before dispatching its fixer or later owner.
 
@@ -246,7 +250,7 @@ Mechanically verify the evidence marker and schema; path equality; expected repo
 
 `Action: evidence-recovery` is implementer/fixer-only. It reruns or recollects evidence at immutable named heads without source changes and writes a successor evidence file.
 
-For incomplete implementation, inspect committed work and resume the same implementer when safe. If another repository is required, add it with a phase base and successor manifest. If the approved spec cannot be satisfied, append an abandonment ruling and stop.
+For incomplete implementation, inspect committed work and resume the same implementer when safe. If another repository is required, add it with a phase base and successor manifest. If the approved spec cannot be satisfied, append an abandonment ruling and `Build: abandoned`, keep the implement directory as the terminal record, and stop.
 
 ## 6. Review, fix, and re-review
 
@@ -260,11 +264,13 @@ Whenever carried ids were supplied, append the complete `carried verdicts` summa
 
 - Clean: accept the phase.
 - Minor-only, including `not_addressed` carried ids: append `review — carried`, the new complete lines, and `accepted ... — carry <open ids>`; dispatch no fixer.
-- Any Critical/Important: append `review — blocking` followed by every finding in the wave, including Minor and `not_addressed` carried ids; automatically authorize fix round 1.
+- Any Critical/Important: append `review — blocking` followed by the wave's new complete lines, including new Minor findings; `not_addressed` carried ids join the wave through their existing source anchors. Automatically authorize fix round 1.
 
 A Minor that shows an unsatisfied requirement or unsafe landing is Important regardless of the returned label.
 
-The fixer receives all ids by ledger anchor, never copied lines. After a verified fix, dispatch one fresh re-reviewer over the fix ranges. It gives a verdict for every supplied id and may admit only fix-caused new findings.
+The fixer receives all ids by ledger anchor, never copied lines. Before the first `Action: execute` fixer dispatch for a round, append `Phase <n>: fix round <R> repositories` with each authorized repository's canonical path, branch, and current HEAD as its fix base. If a successor execute manifest adds a repository, append the complete expanded set; evidence recovery reuses the recorded bases. After a verified fix, dispatch one fresh re-reviewer over the fix ranges. It gives a verdict for every supplied id and may admit only fix-caused new findings.
+
+After any intermediate or final re-review whose supplied ids include carried findings, append an updated complete `Phase <n>: carried verdicts` summary for those carried ids before deciding the round outcome. This later verdict supersedes their earlier verdict for open-set computation without duplicating their source lines.
 
 Anchor each newly admitted re-review finding exactly once under that round's `open` or `carried` entry. Supplied findings keep their original source lines and are referenced only by id.
 
@@ -334,11 +340,13 @@ Finish on coverage, not predicted phase count. Confirm:
 
 If external acceptance evidence is pending, record the dependency and verification procedure and stop without completing. When evidence becomes available, append its verification and repeat the finish gate.
 
+If a current repository HEAD is beyond the latest final coverage entry, do not complete. Regenerate the cumulative package at the current heads and re-enter the final whole-spec review loop so every unreviewed range receives coverage and finding resolution.
+
 Append `Build: complete`, collect the result, then delete only this spec's implement directory. Report repository ranges, outcomes, tests, acceptance evidence, carried closures, parked findings, and rulings. Integration remains the user's next decision.
 
 ## 9. Resume
 
-Read the spec and ledger, verify its first line names the spec, then verify every recorded commit, branch, head, range, tree, manifest, and required evidence file. Trust durable state over conversation memory. A terminal ledger never resumes automatically.
+Read the spec and ledger, verify its first line names the spec, then verify every recorded commit, branch, head, range, tree, manifest, and required evidence file. If a recorded commit is reachable only from another branch, name that branch and ask before checking it out or continuing. Trust durable state over conversation memory. A terminal ledger never resumes automatically.
 
 - Incomplete/missing manifest or unknown required field → do not dispatch; append a recovery ruling and create the next generation. Never repair it in place.
 - Missing temporary package → regenerate from recorded ranges and create a successor manifest without a routine ruling.
@@ -351,6 +359,7 @@ Read the spec and ledger, verify its first line names the spec, then verify ever
 - Open Critical/Important after re-review → user gate. Final round-1 Minor-only → automatic ordinal round 2. Later Minor-only → controller parking rule or user authorization.
 - Intermediate accepted with remaining work → choose again from actual heads. No requirements but open carried ids → final closure phase.
 - Final clean/validly parked and all finish checks pass → complete.
-- Terminal build with stale artifacts → report terminal state; do not repeat work.
+- `Build: complete` with a leftover implement directory → collect the recorded result, delete only that spec's directory, and do not repeat completion work.
+- `Build: abandoned` → report the recorded terminal state and keep the implement directory.
 
 Legacy ledgers remain readable. Derive finality from frozen scope, accepted requirements, and the open carried set; do not backfill a separate kind entry. If the ledger/run directory is lost, do not infer acceptance from trailers alone: inspect code/history against the spec, repeat uncertain verification/review, then use verified heads as the recovery baseline.

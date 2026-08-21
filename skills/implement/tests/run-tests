@@ -108,9 +108,11 @@ t05_carried_state_is_closed() {
   contains "$SKILL" 'Completion rejects any carried id without one unique source line, reviewer verdict, or final owner.' || return 1
   contains "$SKILL" 'Minor-only, including `not_addressed` carried ids: append `review — carried`' || return 1
   contains "$SKILL" 'including on a clean or blocking review' || return 1
-  contains "$SKILL" 'including Minor and `not_addressed` carried ids' || return 1
+  contains "$SKILL" '`not_addressed` carried ids join the wave through their existing source anchors' || return 1
   contains "$SKILL" 'every original `not_addressed` or new Minor is carried' || return 1
   contains "$SKILL" 'Anchor each newly admitted re-review finding exactly once' || return 1
+  contains "$SKILL" 'After any intermediate or final re-review whose supplied ids include carried findings' || return 1
+  contains "$SKILL" 'This later verdict supersedes their earlier verdict for open-set computation without duplicating their source lines.' || return 1
   contains "$SKILL" 'Complete `review — carried` without accepted line' || return 1
   not_contains "$SKILL" 'Record each Minor as `Phase <n>: review: minor deferred' || return 1
 }
@@ -146,10 +148,39 @@ t07_resume_handles_artifact_loss() {
   contains "$SKILL" 'do not rerun review' || return 1
   contains "$SKILL" 'No requirements but open carried ids' || return 1
   contains "$SKILL" 'A terminal ledger never resumes automatically.' || return 1
+  contains "$SKILL" '`Build: complete` with a leftover implement directory' || return 1
+  contains "$SKILL" '`Build: abandoned` → report the recorded terminal state and keep the implement directory.' || return 1
+  contains "$SKILL" 'reachable only from another branch' || return 1
   contains "$SKILL" 'do not infer acceptance from trailers alone' || return 1
 }
 
-t08_implement_directory_supports_non_git_workspace() {
+t08_carried_rereview_verdict_closes_open_set() {
+  ledger="$TMPROOT/carried-rereview-ledger.md"
+  cat >"$ledger" <<'EOF'
+# Implement ledger — /tmp/spec.md
+Phase 1: review — carried
+F3 | minor | preserve the compatibility behavior
+Phase 1: accepted — R1 — carry F3
+Phase 2: carried verdicts — F3 not_addressed
+Phase 2: review — blocking
+F4 | important | required behavior is incomplete
+Phase 2: fix round 1 — /tmp/repo aaa1111..bbb2222 — verified: pass
+Phase 2: re-review 1 — clean
+Phase 2: carried verdicts — F3 addressed
+Phase 2: accepted — R2
+EOF
+
+  [ "$(grep -c '^F3 | minor |' "$ledger")" -eq 1 ] || return 1
+  open=$(awk '
+    /accepted .* carry .*F3/ { open = 1 }
+    /carried verdicts/ && /F3 not_addressed(;|$)/ { open = 1 }
+    /carried verdicts/ && /F3 (addressed|invalid)(;|$)/ { open = 0 }
+    END { print open + 0 }
+  ' "$ledger")
+  [ "$open" -eq 0 ]
+}
+
+t09_implement_directory_supports_non_git_workspace() {
   repo="$TMPROOT/implement-directory"
   mkdir -p "$repo/docs/specs" "$repo/projects/a"
   (
@@ -167,7 +198,7 @@ t08_implement_directory_supports_non_git_workspace() {
   )
 }
 
-t09_review_package_is_temporary_and_multi_repo() {
+t10_review_package_is_temporary_and_multi_repo() {
   repo="$TMPROOT/review-package"
   mkdir -p "$repo/docs/specs" "$repo/projects/a" "$repo/projects/b"
   (
@@ -199,7 +230,7 @@ t09_review_package_is_temporary_and_multi_repo() {
   )
 }
 
-t10_helpers_reject_bad_input() {
+t11_helpers_reject_bad_input() {
   repo="$TMPROOT/bad-input"
   mkdir -p "$repo"
   (
@@ -221,14 +252,14 @@ t10_helpers_reject_bad_input() {
   )
 }
 
-t11_readme_describes_closure_and_recovery() {
+t12_readme_describes_closure_and_recovery() {
   contains "$README" 'carried Minor findings' || return 1
   contains "$README" 'whole-spec final review' || return 1
   grep -qiF 'immutable dispatch manifests' "$README" || return 1
   contains "$README" 'agent-owned evidence' || return 1
 }
 
-t12_nine_sections_remain_ordered() {
+t13_nine_sections_remain_ordered() {
   previous=$(grep -nF '## Flow' "$SKILL" | head -1 | cut -d: -f1)
   for heading in \
     '## 1. Resolve spec' \
@@ -255,11 +286,12 @@ t04_roles_are_runtime_contracts
 t05_carried_state_is_closed
 t06_final_review_converges
 t07_resume_handles_artifact_loss
-t08_implement_directory_supports_non_git_workspace
-t09_review_package_is_temporary_and_multi_repo
-t10_helpers_reject_bad_input
-t11_readme_describes_closure_and_recovery
-t12_nine_sections_remain_ordered'
+t08_carried_rereview_verdict_closes_open_set
+t09_implement_directory_supports_non_git_workspace
+t10_review_package_is_temporary_and_multi_repo
+t11_helpers_reject_bad_input
+t12_readme_describes_closure_and_recovery
+t13_nine_sections_remain_ordered'
 
 for test_name in $TESTS; do
   if (set -e; "$test_name"); then

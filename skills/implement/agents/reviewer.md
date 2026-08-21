@@ -68,4 +68,4 @@ Start at the manifest's first finding id and number consecutively. Use exactly `
 - Important: a material correctness, reliability, compatibility, or maintainability defect that should be fixed before landing.
 - Minor: a concrete non-blocking quality defect.
 
-A finding that proves a requirement failure or unsafe landing is contract-blocking and Important regardless of size. State that consequence explicitly in the finding. Repository standards override generic preferences.
+A finding that proves a requirement failure or unsafe landing is contract-blocking and Important regardless of size; Critical still applies when warranted. Begin its text with `contract-blocking: <requirement/criterion or landing-safety claim> —` so routing is mechanical. Repository standards override generic preferences.

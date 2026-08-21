@@ -5,7 +5,7 @@ description: Turn an approved spec into reviewed, independently shippable code w
 
 # Implement
 
-Orchestrate the build from an approved spec. Fresh roles implement each landing, review it, fix its finding wave, and re-review fixes. The controller owns scope, durable state, mechanical gates, and user decisions.
+Orchestrate the build from an approved spec. Fresh roles implement each landing, review it, fix its finding wave, and re-review fixes. The controller owns scope, durable state, mechanical gates, and routing to user decisions.
 
 ## Flow
 
@@ -24,7 +24,7 @@ Resolve spec
 
 - The controller alone writes `PROGRESS_FILE` and dispatch manifests. The approved spec and frozen phase brief are read-only; requirement changes require a new approved spec carrying `Supersedes: <old-spec-path>`.
 - Keep dynamic context in workspace artifacts. Agent prompts contain only the role-contract path, dispatch-manifest path, and compact return instruction; never inline spec text, evidence, project warnings, or finding lines when dispatching.
-- Validate every manifest and evidence file before consuming it. Implementer and fixer may write only their manifest-named evidence path inside `IMPLEMENT_DIR`; reviewer and re-reviewer are read-only.
+- The controller performs only mechanical checks: markers, schema, path equality, and Git repository/head/branch/base/ancestry/cleanliness/range/trailer facts. It never runs tests, judges test or acceptance results, inspects code for correctness or completeness, or decides finding verdicts; the four roles own those judgments. Implementer and fixer may write only their manifest-named evidence path inside `IMPLEMENT_DIR`; reviewer and re-reviewer are read-only.
 - Continue without routine check-ins. Stop only for destructive or external authority, an irreversible blocker, a contract that cannot be satisfied, or the review user gate.
 
 For every fresh role, use the matching contract in `agents/`. The dispatch prompt is:
@@ -130,7 +130,7 @@ Compute open carried findings by adding ids in accepted `carry` suffixes, then r
 
 ## 4. Choose the current phase
 
-Read the complete spec, ledger, and relevant code. Determine satisfied and remaining requirements from accepted evidence and current repository state. Start with all remaining requirements plus every open carried finding.
+Read the complete spec and ledger. Determine satisfied and remaining requirements only from accepted ledger entries; repository state supplies paths, branches, bases, and heads, not semantic completion. Include every requirement without durable acceptance plus every open carried finding.
 
 Take an intermediate boundary only when it materially reduces risk or cognitive load, permits an external transition to settle, or preserves the headroom needed for a reliable run. Every boundary pays another dispatch, review, fix loop, and full-suite run.
 
@@ -245,11 +245,11 @@ EVIDENCE: <authorized path>
 REPO_HEAD: <canonical path> | <sha>
 ```
 
-Mechanically verify the evidence marker and schema; path equality; expected repository/head/branch/base/ancestry; clean trees; phase trailer on changed implementer heads; and exact review ranges. Append concerns and one compact implemented/fix ledger summary. Do not copy evidence into another file.
+Mechanically check the evidence marker and schema; path equality; expected repository/head/branch/base/ancestry; clean trees; phase trailer on changed implementer heads; exact ranges; and presence of the required test, integration, and acceptance fields. Do not run commands from the evidence or judge their results. Append concerns and one compact implemented/fix summary from the agent-owned evidence; do not copy the evidence.
 
 `Action: evidence-recovery` is implementer/fixer-only. It reruns or recollects evidence at immutable named heads without source changes and writes a successor evidence file.
 
-For incomplete implementation, inspect committed work and resume the same implementer when safe. If another repository is required, add it with a phase base and successor manifest. If the approved spec cannot be satisfied, append an abandonment ruling and `Build: abandoned`, keep the implement directory as the terminal record, and stop.
+For a `BLOCKED` or incomplete return, mechanically record the reported heads, blocker, and remaining work, then dispatch the owning implementer/fixer to continue or recover; the controller does not inspect code to decide completion. If the role reports that another repository is required, add it with a base and successor manifest. If the implementer reports that the approved spec cannot be satisfied, append an abandonment ruling and `Build: abandoned`, keep the implement directory as the terminal record, and stop.
 
 ## 6. Review, fix, and re-review
 
@@ -259,7 +259,7 @@ For every review or re-review supplied carried ids, append the complete `carried
 
 Before the first `Action: execute` fixer dispatch for any round, append `Phase <n>: fix round <R> repositories` with each authorized repository's canonical path, branch, and current HEAD as its fix base. If a successor execute manifest adds a repository, append the complete expanded set; evidence recovery reuses the recorded bases.
 
-A finding that proves an approved requirement is unsatisfied or the landing is unsafe is contract-blocking and cannot be carried or parked. Treat it as Important when the reviewer returned Minor.
+A reviewer marks an unsatisfied approved requirement or unsafe landing with finding text beginning `contract-blocking:` and severity Important or Critical. The controller mechanically rejects a `contract-blocking:` finding labeled Minor; it does not infer contract impact from code.
 
 ### Intermediate phase
 
@@ -287,7 +287,7 @@ A final `not_addressed` carried id joins the final fixer wave through its origin
 
 Any final finding, including Minor or `not_addressed` carried work, automatically authorizes final fix round 1. The final fixer may change any participating repository required by the complete wave.
 
-Before each final re-review, verify the latest heads, append `Phase <n>: re-review <R> repositories` with every cumulative first-build-base-to-current-HEAD range, regenerate the cumulative package, and re-derive the spec checklist. The re-reviewer gives every supplied verdict, reconfirms whole-spec coverage at those heads, and admits a new finding only when:
+Before each final re-review, mechanically check the latest heads, append `Phase <n>: re-review <R> repositories` with every cumulative first-build-base-to-current-HEAD range, and regenerate the cumulative package. The re-reviewer re-derives the spec checklist, gives every supplied verdict, reconfirms whole-spec coverage at those heads, and admits a new finding only when:
 
 - the fix caused it; or
 - it names the exact requirement, acceptance criterion, integration, compatibility, or safety coverage claim it invalidates.
@@ -299,17 +299,11 @@ Final round authority:
 3. Any user-authorized round 2 consumes that allowance; no later round is automatic.
 4. Critical/Important after re-review goes to the user gate.
 5. If the user parks all eligible round-1 Critical/Important findings and only Minor findings remain, automatic ordinal round 2 is still available.
-6. After ordinal round 2, the controller may park a genuine residual Minor only with reason, residual risk, and evidence that it affects no requirement, acceptance criterion, compatibility promise, or safety property. Otherwise promote it to Important.
-
-Record controller parking as:
-
-```text
-Phase <n>: review: parked — F<n> — Ruling: parked by controller — <reason>; residual risk: <risk>; no requirement, acceptance, compatibility, or safety impact: <evidence>
-```
+6. After ordinal round 2, every residual finding enters the user gate; no further round is automatic and the controller cannot park findings.
 
 ## 7. User gate
 
-Only the user may accept/defer Critical or Important risk, authorize a non-automatic round, or abandon for review reasons:
+Only the user may accept/defer Critical or Important risk, park a residual finding after automatic rounds, authorize a non-automatic round, or abandon for review reasons:
 
 | Choice | Record and continue |
 |---|---|
@@ -318,11 +312,11 @@ Only the user may accept/defer Critical or Important risk, authorize a non-autom
 | Defer | `Phase <n>: review: parked — F<n> — Ruling: deferred by user — <reason and cost>` |
 | Stop | append a ruling and `Build: abandoned — <reason>` |
 
-Present the complete open wave. A user-authorized round handles every open severity. Contract-blocking findings cannot be parked; fix them, stop, or supersede the spec. The user may park other Critical/Important risk with a recorded reason and residual risk while preserving the accepted contract and safe landing.
+Present the complete open wave. A user-authorized round handles every open severity. Contract-blocking findings cannot be parked; fix them, stop, or supersede the spec. The user may park other residual risk with a recorded reason and residual risk while preserving the accepted contract and safe landing.
 
 ## 8. Finish
 
-Finish on coverage, not predicted phase count. Confirm:
+Finish on coverage, not predicted phase count. Apply this as a ledger-and-Git gate; reviewer verdicts establish semantic coverage and the controller does not reassess them. Confirm:
 
 - every requirement is covered by accepted scope and review evidence;
 - the latest final review/re-review coverage entry covers the whole spec and is paired with cumulative repository ranges at every current HEAD;
@@ -331,7 +325,7 @@ Finish on coverage, not predicted phase count. Confirm:
 - every tree is clean and every current range is reviewed; and
 - no acceptance evidence remains pending.
 
-If external acceptance evidence is pending, record the dependency and verification procedure and stop without completing. When evidence becomes available, append its verification and repeat the finish gate.
+If external acceptance evidence is pending, record the dependency and verification procedure and stop without completing. When the user or an authorized role supplies the evidence, mechanically record its reference and repeat the finish gate; the controller does not perform the acceptance check.
 
 If a current repository HEAD is beyond the ranges paired with the latest final coverage entry, invalidate that final-review sequence. Record the new cumulative ranges, regenerate the package, and restart with an unrestricted whole-spec review at the current heads.
 
@@ -344,15 +338,15 @@ Read the spec and ledger, verify its first line names the spec, then verify ever
 - Incomplete/missing manifest or unknown required field → do not dispatch; append a recovery ruling and create the next generation. Never repair it in place.
 - Missing temporary package → regenerate from recorded ranges and create a successor manifest without a routine ruling.
 - Missing, malformed, or schema-invalid evidence, including evidence without `Evidence-complete: yes` → treat it as lost. At unchanged verified heads, dispatch `evidence-recovery`; never substitute the ledger summary. If heads moved, use normal repository recovery.
-- Scope exists without complete implementation → inspect status, log, and phase commits; verify finished work or resume implementation.
+- Scope exists without complete implementation → inspect status, log, and phase commits only to establish Git facts, then dispatch an implementer to recover or finish the scope.
 - Implemented line without review result → repeat the appropriate phase or whole-spec review.
 - Complete `review — carried` without accepted line, with unchanged reviewed heads/scope → append accepted directly with anchored ids; do not rerun review.
 - Blocking review without fix → run its authorized round 1. User authorization without a later fix → run that wave.
 - Completed fix without re-review → run the matching intermediate or final re-review.
-- Open Critical/Important after re-review → user gate. Final round-1 Minor-only → automatic ordinal round 2. Later Minor-only → controller parking rule or user authorization.
+- Open Critical/Important after re-review → user gate. Final round-1 Minor-only → automatic ordinal round 2. Any later residual finding → user gate.
 - Intermediate accepted with remaining work → choose again from actual heads. No requirements but open carried ids → final closure phase.
 - Final clean/validly parked and all finish checks pass → complete.
 - `Build: complete` with a leftover implement directory → collect the recorded result, delete only that spec's directory, and do not repeat completion work.
 - `Build: abandoned` → report the recorded terminal state and keep the implement directory.
 
-For a legacy ledger, exclude `review: minor deferred` entries from the carried set and derive finality from frozen scope, accepted requirements, and open carried ids without backfilling entries. If the ledger/run directory is lost, inspect code/history against the spec, repeat uncertain verification/review, then use verified heads as the recovery baseline; commit trailers alone do not establish acceptance.
+For a legacy ledger, exclude `review: minor deferred` entries from the carried set and derive finality from frozen scope, accepted requirements, and open carried ids without backfilling entries. If the ledger/run directory is lost, mechanically establish repository heads and history, then dispatch an implementer to reconstruct or complete evidence and a reviewer to establish acceptance; commit trailers alone do not establish acceptance.

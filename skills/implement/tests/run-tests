@@ -71,6 +71,13 @@ t03_manifest_and_evidence_contracts_are_complete() {
   contains "$SKILL" 'Repeat the repository block; keep integration and acceptance build-wide.' || return 1
   contains "$SKILL" '`Action: evidence-recovery` is implementer/fixer-only.' || return 1
   contains "$SKILL" 'evidence without `Evidence-complete: yes`' || return 1
+  contains "$SKILL" 'The controller performs only mechanical checks' || return 1
+  contains "$SKILL" 'It never runs tests, judges test or acceptance results, inspects code for correctness or completeness, or decides finding verdicts' || return 1
+  contains "$SKILL" 'Do not run commands from the evidence or judge their results.' || return 1
+  contains "$AGENTS/re-reviewer.md" 'Re-derive the complete requirement and acceptance checklist' || return 1
+  not_contains "$SKILL" 'reported repository tests, integration checks and affected phase acceptance checks pass when rerun' || return 1
+  not_contains "$SKILL" 'inspect committed work' || return 1
+  not_contains "$SKILL" 'verify finished work' || return 1
 }
 
 t04_roles_are_runtime_contracts() {
@@ -96,7 +103,7 @@ t04_roles_are_runtime_contracts() {
   contains "$AGENTS/reviewer.md" 'perform the one unrestricted whole-spec review' || return 1
   contains "$AGENTS/re-reviewer.md" 'only findings caused by the fix wave' || return 1
   contains "$AGENTS/re-reviewer.md" 'Limit new findings to fix-caused defects or findings that invalidate a named prior' || return 1
-  contains "$AGENTS/reviewer.md" 'contract-blocking and Important regardless of size' || return 1
+  contains "$AGENTS/reviewer.md" 'Begin its text with `contract-blocking:' || return 1
 }
 
 t05_carried_state_is_closed() {
@@ -125,9 +132,9 @@ t06_final_review_converges() {
   contains "$SKILL" 'no later round is automatic' || return 1
   contains "$SKILL" 'parks all eligible round-1 Critical/Important findings' || return 1
   contains "$SKILL" 'names the exact requirement, acceptance criterion, integration, compatibility, or safety coverage claim' || return 1
-  contains "$SKILL" 'affects no requirement, acceptance criterion, compatibility promise, or safety property' || return 1
-  contains "$SKILL" 'Ruling: parked by controller' || return 1
   contains "$SKILL" 'Only the user may accept/defer Critical or Important risk' || return 1
+  contains "$SKILL" 'After ordinal round 2, every residual finding enters the user gate' || return 1
+  contains "$SKILL" 'the controller cannot park findings' || return 1
   contains "$SKILL" 'Contract-blocking findings cannot be parked' || return 1
   contains "$SKILL" 'review — final findings — coverage:' || return 1
   contains "$SKILL" 'review — final clean — coverage:' || return 1
@@ -136,6 +143,7 @@ t06_final_review_converges() {
   contains "$SKILL" 'restart with an unrestricted whole-spec review at the current heads' || return 1
   contains "$SKILL" "Use the manifest's evidence paths and ledger anchors as acceptance-evidence sources." || return 1
   not_contains "$SKILL" 'coverage-index file' || return 1
+  not_contains "$SKILL" 'parked by controller' || return 1
 }
 
 t07_resume_handles_artifact_loss() {
